@@ -7,6 +7,15 @@ import 'login_screen.dart';
 import 'calendar_view.dart';
 import 'dart:js' as js;
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:aad_oauth/aad_oauth.dart';
+import 'package:aad_oauth/model/config.dart';
+import 'main.dart';
+import 'services/auth_service.dart';
+import 'config/app_config.dart';
+import 'package:flutter_widget_from_html/flutter_widget_from_html.dart';
+
+
 
 class EmailHomeScreen extends StatefulWidget {
   const EmailHomeScreen({super.key});
@@ -18,12 +27,27 @@ class EmailHomeScreen extends StatefulWidget {
 class _EmailHomeScreenState extends State<EmailHomeScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   String _selectedApp = "Mail";
+  bool _isPasswordMissing = false;
+  bool _isConnecting = false;
+  final TextEditingController _promptPasswordController = TextEditingController();
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = "";
+
+  final ScrollController _scrollController = ScrollController();
+  int _inboxPage = 0;
+  int _sentPage = 0;
+  bool _isInboxLoadingMore = false;
+  bool _isSentLoadingMore = false;
+  bool _hasMoreInbox = true;
+  bool _hasMoreSent = true;
+
   String _selectedFolder = "Inbox";
   int? _selectedEmailIndex;
   bool _isComposing = false;
   bool _showEmailDetails = false;
   bool _isStarred = false;
   String? _selectedReaction;
+  bool _isLoadingDetails = false;
 
   final TextEditingController _toController = TextEditingController();
   final TextEditingController _ccController = TextEditingController();
@@ -45,6 +69,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     _folders["Inbox"]!.add({
       "sender": "Google",
       "email": "no-reply@accounts.google.com",
@@ -60,9 +85,32 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     _fetchInboxFromBackend();
   }
 
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      if (_selectedFolder == "Inbox") {
+        _fetchInboxFromBackend(loadMore: true);
+      } else if (_selectedFolder == "Sent") {
+        _fetchSentFromBackend(loadMore: true);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    _promptPasswordController.dispose();
+    _toController.dispose();
+    _ccController.dispose();
+    _subjectController.dispose();
+    _contentController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadUserData() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     String? email = prefs.getString('email');
+    String? password = prefs.getString('password');
     if (email != null) {
       String rawName = email.split('@')[0];
       String formattedName = "";
@@ -85,55 +133,284 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
         _userEmail = email;
         _userName = formattedName;
         _userInitials = initials;
+        _isPasswordMissing = (password == null || password.isEmpty);
       });
     }
   }
 
-  Future<void> _fetchInboxFromBackend() async {
+  Future<void> _fetchInboxFromBackend({bool loadMore = false}) async {
+    if (loadMore) {
+      if (_isInboxLoadingMore || !_hasMoreInbox) return;
+      setState(() {
+        _isInboxLoadingMore = true;
+      });
+    } else {
+      setState(() {
+        _inboxPage = 0;
+        _hasMoreInbox = true;
+      });
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(0.0);
+      }
+    }
+
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();
       String? email = prefs.getString('email');
       String? password = prefs.getString('password');
-      if (email == null || password == null) return;
+      if (email == null) return;
 
+      final Map<String, String> headers = {'X-Email': email};
+      if (password != null && password.isNotEmpty) {
+        headers['X-Password'] = password;
+      }
+
+      int targetPage = loadMore ? _inboxPage + 1 : 0;
       final response = await http.get(
-        Uri.parse('http://localhost:8080/api/email/inbox'),
-        headers: {'X-Email': email, 'X-Password': password},
+        Uri.parse('${AppConfig.instance.baseUrl}/email/inbox?page=$targetPage&size=50'),
+        headers: headers,
       );
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
-        final List<Map<String, dynamic>> emails = data.map((e) => Map<String, dynamic>.from(e)).toList();
+        final List<Map<String, dynamic>> newEmails = data.map((e) => Map<String, dynamic>.from(e)).toList();
+        
         setState(() {
-          _folders["Inbox"] = emails;
+          if (loadMore) {
+            _folders["Inbox"]!.addAll(newEmails);
+            _inboxPage = targetPage;
+          } else {
+            _folders["Inbox"] = newEmails;
+          }
+          if (newEmails.length < 50) {
+            _hasMoreInbox = false;
+          }
+          _isPasswordMissing = false;
         });
+      } else if (response.statusCode == 401) {
+        await _handleAuthFailureOrMissing(email);
       }
     } catch (e) {
       debugPrint("Failed to fetch inbox: $e");
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isInboxLoadingMore = false;
+        });
+      }
     }
   }
 
-  Future<void> _fetchSentFromBackend() async {
+  Future<void> _fetchSentFromBackend({bool loadMore = false}) async {
+    if (loadMore) {
+      if (_isSentLoadingMore || !_hasMoreSent) return;
+      setState(() {
+        _isSentLoadingMore = true;
+      });
+    } else {
+      setState(() {
+        _sentPage = 0;
+        _hasMoreSent = true;
+      });
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(0.0);
+      }
+    }
+
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();
       String? email = prefs.getString('email');
       String? password = prefs.getString('password');
-      if (email == null || password == null) return;
+      if (email == null) return;
 
+      final Map<String, String> headers = {'X-Email': email};
+      if (password != null && password.isNotEmpty) {
+        headers['X-Password'] = password;
+      }
+
+      int targetPage = loadMore ? _sentPage + 1 : 0;
       final response = await http.get(
-        Uri.parse('http://localhost:8080/api/email/sent'),
-        headers: {'X-Email': email, 'X-Password': password},
+        Uri.parse('${AppConfig.instance.baseUrl}/email/sent?page=$targetPage&size=50'),
+        headers: headers,
       );
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
-        final List<Map<String, dynamic>> emails = data.map((e) => Map<String, dynamic>.from(e)).toList();
+        final List<Map<String, dynamic>> newEmails = data.map((e) => Map<String, dynamic>.from(e)).toList();
+        
         setState(() {
-          _folders["Sent"] = emails;
+          if (loadMore) {
+            _folders["Sent"]!.addAll(newEmails);
+            _sentPage = targetPage;
+          } else {
+            _folders["Sent"] = newEmails;
+          }
+          if (newEmails.length < 50) {
+            _hasMoreSent = false;
+          }
+          _isPasswordMissing = false;
         });
+      } else if (response.statusCode == 401) {
+        await _handleAuthFailureOrMissing(email);
       }
     } catch (e) {
       debugPrint("Failed to fetch sent messages: $e");
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSentLoadingMore = false;
+        });
+      }
     }
   }
+
+  Future<void> _fetchEmailDetails(Map<String, dynamic> email, int index) async {
+    if (email['content'] != null && email['content'].toString().isNotEmpty) {
+      return;
+    }
+    if (email['uid'] == null) {
+      return;
+    }
+
+    setState(() {
+      _isLoadingDetails = true;
+    });
+
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      String? userEmail = prefs.getString('email');
+      String? password = prefs.getString('password');
+      if (userEmail == null) return;
+
+      final Map<String, String> headers = {'X-Email': userEmail};
+      if (password != null && password.isNotEmpty) {
+        headers['X-Password'] = password;
+      }
+
+      final response = await http.get(
+        Uri.parse('${AppConfig.instance.baseUrl}/email/details?folder=$_selectedFolder&uid=${email['uid']}'),
+        headers: headers,
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> details = jsonDecode(response.body);
+        setState(() {
+          _folders[_selectedFolder]![index]['content'] = details['content'];
+          _folders[_selectedFolder]![index]['attachments'] = details['attachments'];
+          if (details['snippet'] != null && details['snippet'].toString().isNotEmpty) {
+            _folders[_selectedFolder]![index]['snippet'] = details['snippet'];
+          }
+        });
+      } else if (response.statusCode == 401) {
+        await _handleAuthFailureOrMissing(userEmail);
+      }
+    } catch (e) {
+      debugPrint("Failed to fetch email details: $e");
+    } finally {
+      setState(() {
+        _isLoadingDetails = false;
+      });
+    }
+  }
+
+  Future<void> _handleAuthFailureOrMissing(String email) async {
+    final lowerEmail = email.toLowerCase();
+    final bool isGoogle = lowerEmail.endsWith('@gmail.com') || lowerEmail.contains('google');
+    final bool isMicrosoft = lowerEmail.endsWith('@outlook.com') || 
+                             lowerEmail.endsWith('@hotmail.com') || 
+                             lowerEmail.endsWith('@live.com') ||
+                             lowerEmail.contains('microsoft');
+
+    if (isGoogle) {
+      debugPrint("🔄 Auto-triggering Google Sign-In for $email...");
+      try {
+        final GoogleSignIn googleSignIn = GoogleSignIn(
+          clientId: '497665028004-3d7sq2e5096d1bsacfgmpdje7je8npee.apps.googleusercontent.com',
+          scopes: [
+            'email',
+            'https://mail.google.com/',
+          ],
+        );
+        
+        GoogleSignInAccount? account = await googleSignIn.signInSilently();
+        account ??= await googleSignIn.signIn();
+
+        if (account != null) {
+          final GoogleSignInAuthentication googleAuth = await account.authentication;
+          final String? accessToken = googleAuth.accessToken;
+          if (accessToken != null) {
+            await _updateCredentialsOnBackendAndLocal(email, accessToken);
+            return;
+          }
+        }
+      } catch (e) {
+        debugPrint("❌ Auto Google OAuth failed: $e");
+      }
+    } else if (isMicrosoft) {
+      debugPrint("🔄 Auto-triggering Microsoft Sign-In for $email...");
+      try {
+        final Config config = Config(
+          tenant: 'common',
+          clientId: '04b47bff-348d-41d1-829a-f4276486e287',
+          scope: 'openid profile email https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access',
+          redirectUri: 'http://localhost:8085',
+          navigatorKey: navigatorKey,
+          customParameters: {'prompt': 'select_account'},
+        );
+        final AadOAuth oauth = AadOAuth(config);
+        
+        try {
+          await oauth.login();
+        } catch (e) {
+          debugPrint('Ignored Microsoft JS cast error: $e');
+        }
+        
+        final String? accessToken = await oauth.getAccessToken();
+        if (accessToken != null) {
+          await _updateCredentialsOnBackendAndLocal(email, accessToken);
+          return;
+        }
+      } catch (e) {
+        debugPrint("❌ Auto Microsoft OAuth failed: $e");
+      }
+    }
+
+    setState(() {
+      _isPasswordMissing = true;
+    });
+  }
+
+  Future<void> _updateCredentialsOnBackendAndLocal(String email, String tokenOrPassword) async {
+    try {
+      final res = await http.post(
+        Uri.parse('${AppConfig.instance.baseUrl}/auth/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email, 'password': tokenOrPassword}),
+      );
+      
+      if (res.statusCode == 200) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('email', email);
+        await prefs.setString('password', tokenOrPassword);
+        setState(() {
+          _isPasswordMissing = false;
+        });
+        if (_selectedFolder == "Inbox") {
+          _fetchInboxFromBackend();
+        } else if (_selectedFolder == "Sent") {
+          _fetchSentFromBackend();
+        }
+      } else {
+        setState(() {
+          _isPasswordMissing = true;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error updating credentials: $e");
+      setState(() {
+        _isPasswordMissing = true;
+      });
+    }
+  }
+
 
   void _selectFolder(String folder) {
     setState(() {
@@ -212,7 +489,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
        if (userEmail == null || userPassword == null) return;
 
        final response = await http.post(
-          Uri.parse('http://localhost:8080/api/email/send'),
+          Uri.parse('${AppConfig.instance.baseUrl}/email/send'),
           headers: {'Content-Type': 'application/json', 'X-Email': userEmail, 'X-Password': userPassword},
            body: jsonEncode({
               'to': to,
@@ -252,6 +529,61 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), duration: const Duration(seconds: 2), behavior: SnackBarBehavior.floating),
     );
+  }
+
+  Future<void> _fetchAndDownloadAttachment(Map<String, dynamic> email, Map<String, dynamic> att) async {
+    final String fileName = att['fileName'] ?? 'Unnamed File';
+    final String contentType = att['contentType'] ?? 'application/octet-stream';
+    String base64Data = att['base64Data'] ?? '';
+
+    if (base64Data.isNotEmpty) {
+      _downloadAttachment(fileName, contentType, base64Data);
+      return;
+    }
+
+    if (email['uid'] == null) {
+      _showSnackBar("Cannot download attachment: Message UID is missing.");
+      return;
+    }
+
+    _showSnackBar("Fetching attachment $fileName...");
+
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      String? userEmail = prefs.getString('email');
+      String? password = prefs.getString('password');
+      if (userEmail == null) return;
+
+      final Map<String, String> headers = {'X-Email': userEmail};
+      if (password != null && password.isNotEmpty) {
+        headers['X-Password'] = password;
+      }
+
+      final response = await http.get(
+        Uri.parse('${AppConfig.instance.baseUrl}/email/attachment?folder=$_selectedFolder&uid=${email['uid']}&fileName=${Uri.encodeComponent(fileName)}'),
+        headers: headers,
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> resData = jsonDecode(response.body);
+        final String fetchedBase64 = resData['base64Data'] ?? '';
+        if (fetchedBase64.isNotEmpty) {
+          setState(() {
+            att['base64Data'] = fetchedBase64;
+          });
+          _downloadAttachment(fileName, contentType, fetchedBase64);
+        } else {
+          _showSnackBar("Attachment data is empty on the server.");
+        }
+      } else if (response.statusCode == 401) {
+        await _handleAuthFailureOrMissing(userEmail);
+      } else {
+        _showSnackBar("Failed to fetch attachment. Status: ${response.statusCode}");
+      }
+    } catch (e) {
+      debugPrint("Failed to fetch attachment: $e");
+      _showSnackBar("Failed to download attachment: $e");
+    }
   }
 
   void _downloadAttachment(String fileName, String contentType, String base64Data) {
@@ -355,8 +687,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                       child: ElevatedButton(
                         onPressed: () async {
                           Navigator.of(dialogContext).pop();
-                          SharedPreferences prefs = await SharedPreferences.getInstance();
-                          await prefs.clear();
+                          await AuthService.logout();
                           if (mounted) {
                             Navigator.pushReplacement(
                               context,
@@ -364,6 +695,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                             );
                           }
                         },
+
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFFFF5F56),
                           foregroundColor: Colors.white,
@@ -471,6 +803,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
         ),
       ),
       body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildAppTopBar(isDesktop),
           Expanded(
@@ -498,11 +831,266 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     );
   }
 
+  void _showProfilePopup() {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.15),
+      builder: (BuildContext context) {
+        return Align(
+          alignment: Alignment.topRight,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 50, right: 8),
+            child: Material(
+              color: Colors.transparent,
+              child: _buildProfilePopupCard(),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildProfilePopupCard() {
+    return Container(
+      width: 340,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.15),
+            blurRadius: 10,
+            spreadRadius: 1,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const SizedBox(width: 24),
+              Expanded(
+                child: Text(
+                  _userEmail,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Color(0xFF334155),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, color: Color(0xFF64748B), size: 20),
+                onPressed: () => Navigator.of(context).pop(),
+                constraints: const BoxConstraints(),
+                padding: EdgeInsets.zero,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Stack(
+            alignment: Alignment.bottomRight,
+            children: [
+              CircleAvatar(
+                radius: 40,
+                backgroundColor: const Color(0xFF6366F1),
+                child: Text(
+                  _userInitials,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black12,
+                      blurRadius: 4,
+                    )
+                  ]
+                ),
+                child: const Icon(
+                  Icons.camera_alt_outlined,
+                  size: 14,
+                  color: Color(0xFF475569),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            "Hi, $_userName!",
+            style: const TextStyle(
+              color: Color(0xFF0F172A),
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 16),
+          OutlinedButton(
+            onPressed: () {},
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF1E3A8A),
+              side: const BorderSide(color: Color(0xFFCBD5E1)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            ),
+            child: const Text(
+              "Manage your Workspace Account",
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  height: 48,
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(24),
+                      bottomLeft: Radius.circular(24),
+                    ),
+                  ),
+                  child: InkWell(
+                    onTap: () {},
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.add, color: Color(0xFF1E293B), size: 18),
+                        SizedBox(width: 8),
+                        Text(
+                          "Add account",
+                          style: TextStyle(
+                            color: Color(0xFF1E293B),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 2),
+              Expanded(
+                child: Container(
+                  height: 48,
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topRight: Radius.circular(24),
+                      bottomRight: Radius.circular(24),
+                    ),
+                  ),
+                  child: InkWell(
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      _logout();
+                    },
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.logout, color: Color(0xFF1E293B), size: 18),
+                        SizedBox(width: 8),
+                        Text(
+                          "Sign out",
+                          style: TextStyle(
+                            color: Color(0xFF1E293B),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: [
+                const Icon(Icons.cloud_queue, color: Color(0xFF64748B), size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(2),
+                        child: const LinearProgressIndicator(
+                          value: 0.79,
+                          backgroundColor: Color(0xFFE2E8F0),
+                          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF3B82F6)),
+                          minHeight: 4,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        "79% of 15 GB used",
+                        style: TextStyle(
+                          color: Color(0xFF64748B),
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                "Privacy Policy",
+                style: TextStyle(color: Color(0xFF64748B), fontSize: 11),
+              ),
+              Text(
+                "  •  ",
+                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+              ),
+              Text(
+                "Terms of Service",
+                style: TextStyle(color: Color(0xFF64748B), fontSize: 11),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAppTopBar(bool isDesktop) {
     return Container(
+      width: double.infinity,
       height: 48,
       color: const Color(0xFF0F172A),
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.only(left: 16, right: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -532,10 +1120,86 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          const Spacer(),
-          const Icon(Icons.search, size: 18, color: Colors.white54),
-          const SizedBox(width: 16),
-          const Icon(Icons.notifications_none, size: 20, color: Colors.white70),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: isDesktop ? 220 : 130,
+                    height: 32,
+                    margin: const EdgeInsets.only(right: 12),
+                    child: TextField(
+                      controller: _searchController,
+                      onChanged: (value) {
+                        setState(() {
+                          _searchQuery = value;
+                        });
+                      },
+                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      decoration: InputDecoration(
+                        contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                        hintText: "Search...",
+                        hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
+                        prefixIcon: const Icon(Icons.search, size: 16, color: Colors.white38),
+                        suffixIcon: _searchQuery.isNotEmpty
+                            ? InkWell(
+                                onTap: () {
+                                  _searchController.clear();
+                                  setState(() {
+                                    _searchQuery = "";
+                                  });
+                                },
+                                child: const Icon(Icons.clear, size: 16, color: Colors.white38),
+                              )
+                            : null,
+                        filled: true,
+                        fillColor: Colors.white.withOpacity(0.08),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide.none,
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide.none,
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
+                        ),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.notifications_none, size: 20, color: Colors.white70),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onPressed: () {
+                      _showSnackBar("No new notifications");
+                    },
+                  ),
+                  const SizedBox(width: 12),
+                  InkWell(
+                    onTap: _showProfilePopup,
+                    borderRadius: BorderRadius.circular(16),
+                    child: CircleAvatar(
+                      radius: 16,
+                      backgroundColor: const Color(0xFF6366F1),
+                      child: Text(
+                        _userInitials,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -693,50 +1357,253 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
   }
 
   Widget _buildMessageList() {
-    final List<Map<String, dynamic>> emails = _folders[_selectedFolder] ?? [];
+    final List<Map<String, dynamic>> allEmails = _folders[_selectedFolder] ?? [];
+    final List<Map<String, dynamic>> emails = _searchQuery.isEmpty
+        ? allEmails
+        : allEmails.where((e) {
+            final sender = (e['sender'] ?? '').toString().toLowerCase();
+            final subject = (e['subject'] ?? '').toString().toLowerCase();
+            final snippet = (e['snippet'] ?? '').toString().toLowerCase();
+            final query = _searchQuery.toLowerCase();
+            return sender.contains(query) || subject.contains(query) || snippet.contains(query);
+          }).toList();
+
     return Column(
       children: [
         Container(padding: const EdgeInsets.all(24), alignment: Alignment.centerLeft, child: Text(_selectedFolder, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold))),
         const Divider(height: 1),
         Expanded(
-          child: emails.isEmpty ? const Center(child: Text("No messages")) : ListView.separated(
-            itemCount: emails.length,
-            separatorBuilder: (c, i) => const Divider(height: 1, indent: 80),
-            itemBuilder: (context, index) {
-              final email = emails[index];
-              final isSelected = index == _selectedEmailIndex && !_isComposing;
-              final String sender = email['sender'] ?? 'Unknown';
-              final bool isRead = email['isRead'] == true;
+          child: _isPasswordMissing
+              ? _buildPasswordPrompt()
+              : (emails.isEmpty
+                  ? const Center(child: Text("No messages"))
+                  : ListView.separated(
+                      controller: _scrollController,
+                      itemCount: emails.length + ((_selectedFolder == "Inbox" ? _isInboxLoadingMore : _isSentLoadingMore) ? 1 : 0),
+                      separatorBuilder: (c, i) => const Divider(height: 1, indent: 80),
+                      itemBuilder: (context, index) {
+                        if (index == emails.length) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 20),
+                            child: Center(
+                              child: SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(strokeWidth: 2.5),
+                              ),
+                            ),
+                          );
+                        }
 
-              return InkWell(
-                onTap: () => setState(() { _selectedEmailIndex = index; _isComposing = false; email['isRead'] = true; }),
-                child: Container(
-                  color: isSelected ? const Color(0xFFEFF6FF) : Colors.transparent,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                  child: Row(
-                    children: [
-                      CircleAvatar(child: Text(sender.isNotEmpty ? sender.substring(0,1).toUpperCase() : "U")),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(sender, style: TextStyle(fontWeight: isRead ? FontWeight.normal : FontWeight.bold, fontSize: 13)),
-                            Text(email['subject'] ?? '', style: TextStyle(fontWeight: isRead ? FontWeight.normal : FontWeight.bold, fontSize: 14), overflow: TextOverflow.ellipsis),
-                            Text(email['snippet'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                          ],
-                        ),
-                      )
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
+                        final email = emails[index];
+                        final isSelected = allEmails.indexOf(email) == _selectedEmailIndex && !_isComposing;
+                        final String sender = email['sender'] ?? 'Unknown';
+                        final bool isRead = email['isRead'] == true;
+
+                        return InkWell(
+                          onTap: () {
+                            final originalIndex = allEmails.indexOf(email);
+                            setState(() {
+                              _selectedEmailIndex = originalIndex;
+                              _isComposing = false;
+                              email['isRead'] = true;
+                            });
+                            _fetchEmailDetails(email, originalIndex);
+                          },
+                          child: Container(
+                            color: isSelected ? const Color(0xFFEFF6FF) : Colors.transparent,
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                            child: Row(
+                              children: [
+                                CircleAvatar(child: Text(sender.isNotEmpty ? sender.substring(0, 1).toUpperCase() : "U")),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(sender, style: TextStyle(fontWeight: isRead ? FontWeight.normal : FontWeight.bold, fontSize: 13)),
+                                      Text(email['subject'] ?? '', style: TextStyle(fontWeight: isRead ? FontWeight.normal : FontWeight.bold, fontSize: 14), overflow: TextOverflow.ellipsis),
+                                      Text(email['snippet'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                                    ],
+                                  ),
+                                )
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    )),
         ),
       ],
     );
   }
+
+  Widget _buildPasswordPrompt() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 320),
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.08),
+                blurRadius: 24,
+                offset: const Offset(0, 8),
+              ),
+            ],
+            border: Border.all(color: const Color(0xFFF1F5F9), width: 1.5),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFEFF6FF),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.sync_lock_rounded,
+                  color: Color(0xFF2563EB),
+                  size: 28,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                "Sync Mail Server",
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1E293B),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                "To access your inbox, please provide your mail server password.",
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF64748B),
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 20),
+              // Password input
+              Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFCBD5E1)),
+                ),
+                child: TextField(
+                  controller: _promptPasswordController,
+                  obscureText: true,
+                  style: const TextStyle(fontSize: 14),
+                  decoration: const InputDecoration(
+                    hintText: "Mail Server Password",
+                    hintStyle: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                    prefixIcon: Icon(Icons.lock_outline, size: 18, color: Color(0xFF64748B)),
+                    border: InputBorder.none,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: ElevatedButton(
+                  onPressed: _isConnecting ? null : _connectMailServer,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2563EB),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: _isConnecting
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2.5,
+                          ),
+                        )
+                      : const Text(
+                          "Connect & Sync",
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                        ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _connectMailServer() async {
+    final password = _promptPasswordController.text;
+    if (password.isEmpty) {
+      _showSnackBar("Please enter your password");
+      return;
+    }
+
+    setState(() {
+      _isConnecting = true;
+    });
+
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      String? email = prefs.getString('email');
+      if (email == null || email.isEmpty) {
+        _showSnackBar("Email details not found.");
+        setState(() {
+          _isConnecting = false;
+        });
+        return;
+      }
+
+      // Check if credentials are valid by logging in/fetching inbox
+      final response = await http.get(
+        Uri.parse('${AppConfig.instance.baseUrl}/email/inbox'),
+        headers: {'X-Email': email, 'X-Password': password},
+      );
+
+      if (response.statusCode == 200) {
+        // Correct password! Save password to preferences
+        await prefs.setString('password', password);
+        
+        final List<dynamic> data = jsonDecode(response.body);
+        final List<Map<String, dynamic>> emails = data.map((e) => Map<String, dynamic>.from(e)).toList();
+        
+        setState(() {
+          _folders["Inbox"] = emails;
+          _isPasswordMissing = false;
+          _isConnecting = false;
+        });
+        _showSnackBar("Mail server synchronized successfully!");
+        _promptPasswordController.clear();
+      } else {
+        _showSnackBar("Authentication failed. Invalid password.");
+        setState(() {
+          _isConnecting = false;
+        });
+      }
+    } catch (e) {
+      _showSnackBar("Failed to connect to mail server: $e");
+      setState(() {
+        _isConnecting = false;
+      });
+    }
+  }
+
 
   Widget _buildComposeView({Key? key}) {
     final bool isMobile = MediaQuery.of(context).size.width < 600;
@@ -992,83 +1859,69 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     return Container(
       key: key,
       color: Colors.white,
-      padding: EdgeInsets.symmetric(horizontal: isMobile ? 16 : 48, vertical: isMobile ? 24 : 40),
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 16 : 32, vertical: isMobile ? 20 : 28),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (isMobile)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () => setState(() => _selectedEmailIndex = null),
+                    icon: const Icon(Icons.arrow_back, color: Color(0xFF64748B)),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text("Back to list", style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
+                ],
+              ),
+            ),
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              if (isMobile) ...[
-                IconButton(
-                  onPressed: () => setState(() => _selectedEmailIndex = null),
-                  icon: const Icon(Icons.arrow_back, color: Color(0xFF64748B)),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-                const SizedBox(width: 12),
-              ],
               Expanded(
                 child: Text(
                   email['subject'] ?? '(No Subject)',
-                  style: TextStyle(fontSize: isMobile ? 22 : 28, fontWeight: FontWeight.w800, color: const Color(0xFF0F172A), letterSpacing: -0.5),
+                  style: TextStyle(
+                    fontSize: isMobile ? 20 : 24, 
+                    fontWeight: FontWeight.bold, 
+                    color: const Color(0xFF1E293B),
+                    letterSpacing: -0.5,
+                  ),
                 ),
               ),
-              if (!isMobile) const SizedBox(width: 24),
-              if (!isMobile) IconButton(onPressed: () {}, icon: const Icon(Icons.print_outlined, color: Color(0xFF64748B), size: 18)),
-              if (!isMobile) IconButton(onPressed: () {}, icon: const Icon(Icons.open_in_new_rounded, color: Color(0xFF64748B), size: 18)),
-            ],
-          ),
-          Row(
-            children: [
-              const Spacer(),
-              IconButton(
-                onPressed: () => setState(() => _isStarred = !_isStarred),
-                icon: Icon(
-                  _isStarred ? Icons.star_rounded : Icons.star_outline_rounded,
-                  color: _isStarred ? Colors.orange : const Color(0xFF64748B),
-                  size: 20
+              if (!isMobile) ...[
+                IconButton(
+                  onPressed: () {}, 
+                  icon: const Icon(Icons.print_outlined, color: Color(0xFF64748B), size: 20),
+                  tooltip: "Print",
                 ),
-              ),
-              _buildEmojiButton(context),
-              IconButton(onPressed: () => setState(() => _isComposing = true), icon: const Icon(Icons.reply_rounded, color: Color(0xFF64748B), size: 20)),
-              IconButton(onPressed: _deleteSelectedEmail, icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFF94A3B8), size: 20)),
-              IconButton(onPressed: () {}, icon: const Icon(Icons.more_vert_rounded, color: Color(0xFF94A3B8), size: 20)),
+                IconButton(
+                  onPressed: () {}, 
+                  icon: const Icon(Icons.open_in_new_rounded, color: Color(0xFF64748B), size: 18),
+                  tooltip: "Open in new window",
+                ),
+              ]
             ],
           ),
-          if (_selectedReaction != null) 
-            Padding(
-               padding: const EdgeInsets.only(top: 8, bottom: 8),
-               child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                     Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE2E8F0))),
-                        child: Row(
-                           children: [
-                              Text(_selectedReaction!, style: const TextStyle(fontSize: 14)),
-                              const SizedBox(width: 4),
-                              const Text("1", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
-                           ],
-                        ),
-                     )
-                  ],
-               ),
-            ),
-          const SizedBox(height: 32),
-          // Sender Info Row
+          const SizedBox(height: 16),
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               CircleAvatar(
-                radius: 20,
-                backgroundColor: const Color(0xFFF1F5F9),
+                radius: 22,
+                backgroundColor: const Color(0xFFE0E7FF),
                 child: Text(
-                  email['sender']?.toString().substring(0, 1).toUpperCase() ?? 'U',
-                  style: const TextStyle(color: Color(0xFF475569), fontWeight: FontWeight.bold, fontSize: 16),
+                  email['sender']?.toString().isNotEmpty == true
+                      ? email['sender'].toString().substring(0, 1).toUpperCase()
+                      : 'U',
+                  style: const TextStyle(color: Color(0xFF4F46E5), fontWeight: FontWeight.bold, fontSize: 16),
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1078,15 +1931,15 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                         Flexible(
                           child: Text(
                             email['sender'] ?? 'Unknown',
-                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: Color(0xFF1E293B)),
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF1E293B)),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 6),
                         Flexible(
                           child: Text(
                             "<${email['email'] ?? 'hidden'}>",
-                            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                            style: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -1095,154 +1948,263 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                     const SizedBox(height: 2),
                     GestureDetector(
                       onTap: () => setState(() => _showEmailDetails = !_showEmailDetails),
-                      child: const Row(
+                      child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text("to me", style: TextStyle(color: Color(0xFF64748B), fontSize: 13)),
-                          Icon(Icons.arrow_drop_down, size: 18, color: Color(0xFF64748B)),
+                          Text(
+                            "To: ${email['toName'] ?? (email['toEmail'] ?? 'me')}",
+                            style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                          ),
+                          const Icon(Icons.arrow_drop_down, size: 16, color: Color(0xFF64748B)),
                         ],
                       ),
                     ),
                   ],
                 ),
               ),
-              Text(
-                email['date'] ?? '',
-                style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12, fontWeight: FontWeight.w500),
-              ),
+              if (!isMobile) ...[
+                Flexible(
+                  child: Text(
+                    _formatDate(email['date']),
+                    style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        onPressed: () => setState(() => _isStarred = !_isStarred),
+                        icon: Icon(
+                          _isStarred ? Icons.star_rounded : Icons.star_outline_rounded,
+                          color: _isStarred ? Colors.orange : const Color(0xFF475569),
+                          size: 18,
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                        tooltip: "Flag",
+                      ),
+                      _buildEmojiButton(context, padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 32, minHeight: 32), size: 18),
+                      IconButton(
+                        onPressed: () => setState(() => _isComposing = true),
+                        icon: const Icon(Icons.reply_rounded, color: Color(0xFF475569), size: 18),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                        tooltip: "Reply",
+                      ),
+                      IconButton(
+                        onPressed: _deleteSelectedEmail,
+                        icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFFF5F56), size: 18),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                        tooltip: "Delete",
+                      ),
+                      IconButton(
+                        onPressed: () {},
+                        icon: const Icon(Icons.more_vert_rounded, color: Color(0xFF475569), size: 18),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                        tooltip: "More actions",
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ),
-          // Detail Dropdown (Conditional)
+          if (isMobile) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Text(
+                  email['date'] ?? '',
+                  style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                ),
+                const Spacer(),
+                IconButton(
+                  onPressed: () => setState(() => _isStarred = !_isStarred),
+                  icon: Icon(_isStarred ? Icons.star_rounded : Icons.star_outline_rounded, color: _isStarred ? Colors.orange : const Color(0xFF64748B), size: 18),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: () => setState(() => _isComposing = true),
+                  icon: const Icon(Icons.reply_rounded, color: Color(0xFF64748B), size: 18),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: _deleteSelectedEmail,
+                  icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFFF5F56), size: 18),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ],
+            ),
+          ],
           if (_showEmailDetails) ...[
              const SizedBox(height: 12),
              Container(
-               margin: const EdgeInsets.only(left: 56),
-               padding: const EdgeInsets.all(16),
+               margin: const EdgeInsets.only(left: 44),
+               padding: const EdgeInsets.all(12),
                decoration: BoxDecoration(
-                 color: Colors.white,
-                 borderRadius: BorderRadius.circular(12),
-                 border: Border.all(color: const Color(0xFFF1F5F9)),
-                 boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                 color: const Color(0xFFF8FAFC),
+                 borderRadius: BorderRadius.circular(8),
+                 border: Border.all(color: const Color(0xFFE2E8F0)),
                ),
                child: Column(
                  children: [
                     _buildDetailRow("from:", "${email['sender']} <${email['email'] ?? ''}>"),
-                    _buildDetailRow(
-                      "to:", 
-                      (email['toName'] != null && email['toName'].toString().isNotEmpty)
-                          ? "${email['toName']} <${email['toEmail'] ?? ''}>"
-                          : (_userEmail.isNotEmpty ? _userEmail : "me")
-                    ),
+                    _buildDetailRow("to:", (email['toName'] != null && email['toName'].toString().isNotEmpty)
+                        ? "${email['toName']} <${email['toEmail'] ?? ''}>"
+                        : (_userEmail.isNotEmpty ? _userEmail : "me")),
                     _buildDetailRow("date:", email['date'] ?? ''),
                     _buildDetailRow("subject:", email['subject'] ?? ''),
                  ],
                ),
              ),
           ],
-          const Padding(padding: EdgeInsets.symmetric(vertical: 32), child: Divider(color: Color(0xFFF1F5F9), thickness: 1)),
-          // Body Content
-          Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SelectableText(
-                    email['content'] ?? '',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      height: 1.6,
-                      color: Color(0xFF334155),
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                  if (email['attachments'] != null && (email['attachments'] as List).isNotEmpty) ...[
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 24),
-                      child: Divider(color: Color(0xFFF1F5F9), thickness: 1),
-                    ),
-                    const Text(
-                      "Attachments",
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: (email['attachments'] as List).map<Widget>((att) {
-                        final String fileName = att['fileName'] ?? 'Unnamed File';
-                        final String contentType = att['contentType'] ?? 'application/octet-stream';
-                        final String base64Data = att['base64Data'] ?? '';
-                        
-                        return InkWell(
-                          onTap: () => _downloadAttachment(fileName, contentType, base64Data),
-                          borderRadius: BorderRadius.circular(12),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF8FAFC),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: const Color(0xFFE2E8F0)),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.insert_drive_file_outlined, color: Color(0xFF2563EB), size: 20),
-                                const SizedBox(width: 10),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      fileName,
-                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      contentType,
-                                      style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(width: 16),
-                                const Icon(Icons.download_rounded, color: Color(0xFF64748B), size: 18),
-                              ],
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
+          if (_selectedReaction != null) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                margin: const EdgeInsets.only(left: 44),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9), 
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_selectedReaction!, style: const TextStyle(fontSize: 13)),
+                    const SizedBox(width: 4),
+                    const Text("1", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
                   ],
-                ],
+                ),
               ),
             ),
+          ],
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16), 
+            child: Divider(color: Color(0xFFE2E8F0), thickness: 1),
           ),
-          // Bottom Actions
+          Expanded(
+            child: _isLoadingDetails
+                ? const Center(child: CircularProgressIndicator())
+                : SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildContentWidget(email['content'] ?? ''),
+                        if (email['attachments'] != null && (email['attachments'] as List).isNotEmpty) ...[
+                          const SizedBox(height: 24),
+                          const Divider(color: Color(0xFFE2E8F0), thickness: 1),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              const Icon(Icons.attach_file, color: Color(0xFF64748B), size: 16),
+                              const SizedBox(width: 6),
+                              Text(
+                                "Attachments (${(email['attachments'] as List).length})",
+                                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: (email['attachments'] as List).map<Widget>((att) {
+                              final String fileName = att['fileName'] ?? 'Unnamed File';
+                              final String contentType = att['contentType'] ?? 'application/octet-stream';
+                              final String base64Data = att['base64Data'] ?? '';
+                              
+                              return InkWell(
+                                onTap: () => _fetchAndDownloadAttachment(email, att),
+                                borderRadius: BorderRadius.circular(8),
+                                child: Container(
+                                  constraints: const BoxConstraints(maxWidth: 260),
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.insert_drive_file_outlined, color: Color(0xFF4F46E5), size: 20),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              fileName,
+                                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            Text(
+                                              contentType.split('/').last.toUpperCase(),
+                                              style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      const Icon(Icons.download_rounded, color: Color(0xFF64748B), size: 16),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+          ),
           Padding(
-            padding: const EdgeInsets.only(top: 24),
-            child: Wrap(
-              spacing: 12,
-              runSpacing: 12,
+            padding: const EdgeInsets.only(top: 16),
+            child: Row(
               children: [
                 OutlinedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.reply_rounded, size: 18),
+                  onPressed: () => setState(() => _isComposing = true),
+                  icon: const Icon(Icons.reply_rounded, size: 16),
                   label: const Text("Reply"),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFF475569),
-                    side: const BorderSide(color: Color(0xFFE2E8F0)),
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    side: const BorderSide(color: Color(0xFFCBD5E1)),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
                 ),
+                const SizedBox(width: 12),
                 OutlinedButton.icon(
                   onPressed: () {},
-                  icon: const Icon(Icons.forward_rounded, size: 18),
+                  icon: const Icon(Icons.forward_rounded, size: 16),
                   label: const Text("Forward"),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFF475569),
-                    side: const BorderSide(color: Color(0xFFE2E8F0)),
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    side: const BorderSide(color: Color(0xFFCBD5E1)),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
                 ),
               ],
@@ -1266,8 +2228,10 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     );
   }
 
-  Widget _buildEmojiButton(BuildContext context) {
+  Widget _buildEmojiButton(BuildContext context, {EdgeInsetsGeometry? padding, BoxConstraints? constraints, double size = 20}) {
     return IconButton(
+      padding: padding,
+      constraints: constraints,
       onPressed: () {
         final RenderBox button = context.findRenderObject() as RenderBox;
         final Offset position = button.localToGlobal(Offset.zero);
@@ -1357,7 +2321,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
           },
         );
       },
-      icon: const Icon(Icons.add_reaction_outlined, color: Color(0xFF64748B), size: 20),
+      icon: Icon(Icons.add_reaction_outlined, color: const Color(0xFF475569), size: size),
     );
   }
 
@@ -1374,6 +2338,64 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
         child: Text(e, style: const TextStyle(fontSize: 24)),
       )).toList(),
     );
+  }
+
+  Widget _buildContentWidget(String content) {
+    final String trimmed = content.trim();
+    final bool isHtml = trimmed.contains('<html') || 
+                        trimmed.contains('<body') || 
+                        trimmed.contains('<div') || 
+                        trimmed.contains('<p') || 
+                        trimmed.contains('<table') || 
+                        trimmed.contains('<br') ||
+                        trimmed.contains('</');
+
+    String processedContent;
+    if (isHtml) {
+      processedContent = '<style>'
+          'table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }'
+          'th, td { border: 1px solid #CBD5E1; padding: 8px 10px; text-align: left; }'
+          'th { background-color: #F1F5F9; font-weight: 600; color: #1E293B; }'
+          '</style>' + trimmed;
+    } else {
+      processedContent = '<div style="white-space: pre-wrap; font-family: sans-serif; font-size: 14px; color: #334155;">${_escapeHtml(trimmed)}</div>';
+    }
+
+    return HtmlWidget(
+      processedContent,
+      textStyle: const TextStyle(
+        fontSize: 15,
+        height: 1.6,
+        color: Color(0xFF334155),
+      ),
+    );
+  }
+
+  String _escapeHtml(String text) {
+    return text
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+  }
+
+  String _formatDate(String? dateStr) {
+    if (dateStr == null || dateStr.isEmpty) return "";
+    try {
+      // Format: "Wed May 27 23:18:16 IST 2026"
+      final parts = dateStr.split(' ');
+      if (parts.length >= 6) {
+        final month = parts[1];
+        final day = parts[2];
+        final time = parts[3];
+        final year = parts[5];
+        final timeParts = time.split(':');
+        final formattedTime = timeParts.length >= 2 ? "${timeParts[0]}:${timeParts[1]}" : time;
+        return "$month $day, $year $formattedTime";
+      }
+    } catch (_) {}
+    return dateStr;
   }
 
 }

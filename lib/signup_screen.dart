@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:ui';
+import 'config/app_config.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -49,7 +50,7 @@ class _SignupScreenState extends State<SignupScreen> with SingleTickerProviderSt
 
     try {
       final response = await http.post(
-        Uri.parse('http://localhost:8080/api/auth/signup'),
+        Uri.parse('${AppConfig.instance.baseUrl}/auth/signup'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'name': _nameController.text.trim(),

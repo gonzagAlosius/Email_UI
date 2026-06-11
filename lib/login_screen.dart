@@ -4,6 +4,11 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'email_screen.dart';
+import 'config/app_config.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:aad_oauth/aad_oauth.dart';
+import 'package:aad_oauth/model/config.dart';
+import 'main.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -33,18 +38,52 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   Future<void> _checkSavedSession() async {
     final prefs = await SharedPreferences.getInstance();
     final savedEmail = prefs.getString('email');
-    final savedPass = prefs.getString('password');
-    if (savedEmail != null && savedEmail.isNotEmpty && savedPass != null && savedPass.isNotEmpty) {
-      if (mounted) {
-        setState(() {
-          _emailController.text = savedEmail;
-          _passwordController.text = savedPass;
-        });
-        Future.delayed(const Duration(milliseconds: 200), () {
-          if (mounted) {
-            _login();
+    final isMicrosoftLogin = prefs.getBool('is_microsoft_login') ?? false;
+
+    if (savedEmail != null && savedEmail.isNotEmpty) {
+      if (isMicrosoftLogin) {
+        // Try silent Microsoft token refresh — no OAuth popup if refresh token is cached
+        try {
+          final Config config = Config(
+            tenant: 'common',
+            clientId: '04b47bff-348d-41d1-829a-f4276486e287',
+            scope: 'openid profile email https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access',
+            redirectUri: AppConfig.redirectUri,
+            navigatorKey: navigatorKey,
+          );
+          final AadOAuth oauth = AadOAuth(config);
+          final String? freshToken = await oauth.getAccessToken();
+
+          if (freshToken != null && freshToken.isNotEmpty) {
+            await prefs.setString('password', freshToken);
+            debugPrint('✅ Silent Microsoft token refresh succeeded.');
+            if (mounted) {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (_) => const EmailHomeScreen()),
+              );
+            }
+            return;
           }
-        });
+        } catch (e) {
+          debugPrint('⚠️ Silent Microsoft refresh failed: $e');
+        }
+        // Silent refresh failed — show login screen (full OAuth will be required)
+        return;
+      } else {
+        // Regular email/password login
+        final savedPass = prefs.getString('password');
+        if (savedPass != null && savedPass.isNotEmpty) {
+          if (mounted) {
+            setState(() {
+              _emailController.text = savedEmail;
+              _passwordController.text = savedPass;
+            });
+            Future.delayed(const Duration(milliseconds: 200), () {
+              if (mounted) _login();
+            });
+          }
+        }
       }
     }
   }
@@ -67,7 +106,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     setState(() => _isLoading = true);
     try {
       final res = await http.post(
-        Uri.parse('http://localhost:8080/api/auth/login'),
+        Uri.parse('${AppConfig.instance.baseUrl}/auth/login'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'email': email, 'password': pass}),
       );
@@ -86,6 +125,143 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       }
     } catch (_) {
       _snack('Connection error. Is the server running?', true);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loginWithGoogle() async {
+    setState(() => _isLoading = true);
+    try {
+      final GoogleSignIn googleSignIn = GoogleSignIn(
+        clientId: '497665028004-3d7sq2e5096d1bsacfgmpdje7je8npee.apps.googleusercontent.com',
+        scopes: [
+          'email',
+          'https://mail.google.com/', // Scope for full IMAP/SMTP access
+        ],
+      );
+      
+      final GoogleSignInAccount? account = await googleSignIn.signIn();
+      if (account == null) {
+        setState(() => _isLoading = false);
+        return;
+      }
+      
+      final GoogleSignInAuthentication googleAuth = await account.authentication;
+      final String? accessToken = googleAuth.accessToken;
+      
+      if (accessToken == null) {
+        _snack('Failed to get access token from Google', true);
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      final email = account.email;
+      
+      final res = await http.post(
+        Uri.parse('${AppConfig.instance.baseUrl}/auth/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email, 'password': accessToken}),
+      );
+      
+      if (res.statusCode == 200) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('email', email);
+        await prefs.setString('password', accessToken);
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const EmailHomeScreen()),
+          );
+        }
+      } else {
+        _snack('Server authorization failed with Google token', true);
+      }
+    } catch (e) {
+      _snack('Google Sign-In Error: $e', true);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loginWithMicrosoft() async {
+    setState(() => _isLoading = true);
+    try {
+      final Config config = Config(
+        tenant: 'common',
+        clientId: '04b47bff-348d-41d1-829a-f4276486e287',
+        scope: 'openid profile email https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access',
+        redirectUri: AppConfig.redirectUri,
+        navigatorKey: navigatorKey,
+        customParameters: {'prompt': 'select_account'},
+      );
+
+      final AadOAuth oauth = AadOAuth(config);
+      try {
+        await oauth.login();
+      } catch (e) {
+        debugPrint('Ignored JS cast error during login: $e');
+      }
+      final String? accessToken = await oauth.getAccessToken();
+
+      if (accessToken == null) {
+        _snack('Failed to get access token from Microsoft', true);
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      String email = "";
+      final String? idToken = await oauth.getIdToken();
+      if (idToken != null) {
+        try {
+          final parts = idToken.split('.');
+          if (parts.length > 1) {
+            final payload = utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
+            final Map<String, dynamic> claims = jsonDecode(payload);
+            email = claims['preferred_username'] ?? claims['email'] ?? claims['unique_name'] ?? "";
+          }
+        } catch (_) {}
+      }
+
+      if (email.isEmpty) {
+        final graphRes = await http.get(
+          Uri.parse('https://graph.microsoft.com/v1.0/me'),
+          headers: {'Authorization': 'Bearer $accessToken'},
+        );
+        if (graphRes.statusCode == 200) {
+          final profile = jsonDecode(graphRes.body);
+          email = profile['mail'] ?? profile['userPrincipalName'] ?? "";
+        }
+      }
+
+      if (email.isEmpty) {
+        _snack('Failed to retrieve Microsoft account email', true);
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      final res = await http.post(
+        Uri.parse('${AppConfig.instance.baseUrl}/auth/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email, 'password': accessToken}),
+      );
+
+      if (res.statusCode == 200) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('email', email);
+        await prefs.setString('password', accessToken);
+        await prefs.setBool('is_microsoft_login', true);
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const EmailHomeScreen()),
+          );
+        }
+      } else {
+        _snack('Server authorization failed with Microsoft token', true);
+      }
+    } catch (e) {
+      _snack('Microsoft Sign-In Error: $e', true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -223,6 +399,63 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                           color: Color(0xFF1A237E), strokeWidth: 2.5))
                   : const Text("Sign In",
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(child: Divider(color: Colors.white.withOpacity(0.3))),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text("OR", style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 11)),
+              ),
+              Expanded(child: Divider(color: Colors.white.withOpacity(0.3))),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: OutlinedButton.icon(
+              onPressed: _isLoading ? null : _loginWithGoogle,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: BorderSide(color: Colors.white.withOpacity(0.4), width: 1.5),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+              ),
+              icon: Image.network(
+                'https://www.gstatic.com/images/branding/googleg/1x/googleg_standard_color_128dp.png',
+                height: 20,
+                width: 20,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Icon(Icons.g_mobiledata, size: 24, color: Colors.white);
+                },
+              ),
+              label: const Text("Sign In with Google",
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: OutlinedButton.icon(
+              onPressed: _isLoading ? null : _loginWithMicrosoft,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: BorderSide(color: Colors.white.withOpacity(0.4), width: 1.5),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+              ),
+              icon: Image.network(
+                'https://img.icons8.com/color/48/000000/microsoft.png',
+                height: 20,
+                width: 20,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Icon(Icons.window, size: 22, color: Colors.white);
+                },
+              ),
+              label: const Text("Sign In with Microsoft",
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
             ),
           ),
           const SizedBox(height: 16),
