@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
@@ -27,7 +28,17 @@ class EmailHomeScreen extends StatefulWidget {
 class _EmailHomeScreenState extends State<EmailHomeScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   String _selectedApp = "Mail";
+
+  String? _getMailPassword(SharedPreferences prefs) {
+    bool isOAuth = prefs.getBool('is_microsoft_login') == true || prefs.getBool('is_google_login') == true;
+    if (isOAuth) {
+      return prefs.getString('password');
+    } else {
+      return prefs.getString('mail_password');
+    }
+  }
   bool _isPasswordMissing = false;
+  bool _isOrgConfigMissing = false;
   bool _isConnecting = false;
   final TextEditingController _promptPasswordController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
@@ -67,6 +78,9 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
   };
 
   @override
+  Timer? _autoRefreshTimer;
+
+  @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
@@ -81,8 +95,12 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
       "content": "Hi there, a new device signed into your account. If it wasn't you, secure your account.",
       "isRead": false,
     });
-    _loadUserData();
-    _fetchInboxFromBackend();
+    _initializeScreen();
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+      if (mounted && _selectedApp == "Mail" && _selectedFolder == "Inbox" && !_isPasswordMissing && !_isOrgConfigMissing) {
+        _silentFetchInbox();
+      }
+    });
   }
 
   void _onScroll() {
@@ -97,6 +115,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
 
   @override
   void dispose() {
+    _autoRefreshTimer?.cancel();
     _scrollController.dispose();
     _promptPasswordController.dispose();
     _toController.dispose();
@@ -110,7 +129,6 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
   Future<void> _loadUserData() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     String? email = prefs.getString('email');
-    String? password = prefs.getString('password');
     if (email != null) {
       String rawName = email.split('@')[0];
       String formattedName = "";
@@ -133,9 +151,426 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
         _userEmail = email;
         _userName = formattedName;
         _userInitials = initials;
-        _isPasswordMissing = (password == null || password.isEmpty);
       });
     }
+  }
+
+  Future<void> _initializeScreen() async {
+    await _loadUserData();
+    if (!mounted) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      
+      final orgConfigExists = await _checkOrgConfigAndPrompt();
+      
+      if (orgConfigExists) {
+        _fetchInboxFromBackend();
+      } else {
+        setState(() {
+          _isPasswordMissing = false;
+        });
+      }
+    });
+  }
+
+  Future<bool> _checkOrgConfigAndPrompt() async {
+    try {
+      final sessionData = await AuthService.getSessionData();
+      int? orgCode;
+      if (sessionData != null) {
+        final rawOrgCode = sessionData['orgCode'] ?? sessionData['orgcode'];
+        if (rawOrgCode is num) {
+          orgCode = rawOrgCode.toInt();
+        } else if (rawOrgCode is String) {
+          orgCode = int.tryParse(rawOrgCode);
+        }
+      }
+
+      String checkUrl = "";
+      if (orgCode != null) {
+        checkUrl = '${AppConfig.instance.baseUrl}/org-config/check/$orgCode';
+      } else if (_userEmail.isNotEmpty) {
+        checkUrl = '${AppConfig.instance.baseUrl}/org-config/check-by-email?email=${Uri.encodeComponent(_userEmail)}';
+      } else {
+        return true;
+      }
+
+      final response = await http.get(Uri.parse(checkUrl));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final bool exists = data['exists'] ?? false;
+        final resolvedOrgCode = data['orgCode'] ?? data['orgcode'] ?? orgCode;
+
+        if (!exists && resolvedOrgCode != null) {
+          setState(() {
+            _isOrgConfigMissing = true;
+          });
+          if (!mounted) return false;
+          await _showOrgConfigPopup(resolvedOrgCode);
+          return false;
+        }
+        setState(() {
+          _isOrgConfigMissing = false;
+        });
+        return exists;
+      }
+      return true;
+    } catch (e) {
+      debugPrint("Error checking organization configuration: $e");
+      return true;
+    }
+  }
+
+  Future<void> _showOrgConfigPopup(dynamic orgCode) async {
+    final formKey = GlobalKey<FormState>();
+    final imapHostController = TextEditingController();
+    final imapPortController = TextEditingController(text: '993');
+    final smtpHostController = TextEditingController();
+    final smtpPortController = TextEditingController(text: '465');
+    bool isSaving = false;
+    String? errorMessage;
+
+    final contextToUse = navigatorKey.currentContext ?? context;
+
+    await showDialog(
+      context: contextToUse,
+      barrierDismissible: false,
+      barrierColor: Colors.black.withOpacity(0.85),
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              backgroundColor: const Color(0xFF1E293B),
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 400),
+                padding: const EdgeInsets.all(20),
+                child: Form(
+                  key: formKey,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF3B82F6).withOpacity(0.15),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.settings_suggest_rounded,
+                                color: Color(0xFF3B82F6),
+                                size: 22,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    "Organization Setup",
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: -0.5,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    "Configure mail servers for Org: $orgCode",
+                                    style: const TextStyle(
+                                      color: Color(0xFF94A3B8),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          "Your organization does not have email server details configured yet. Please provide the mail server connection details below.",
+                          style: TextStyle(
+                            color: Color(0xFFCBD5E1),
+                            fontSize: 13,
+                            height: 1.4,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+
+                        if (errorMessage != null) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEF4444).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: const Color(0xFFEF4444).withOpacity(0.3)),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.error_outline_rounded, color: Color(0xFFF87171), size: 18),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    errorMessage!,
+                                    style: const TextStyle(color: Color(0xFFF87171), fontSize: 12.5),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+
+                        const Text(
+                          "IMAP Configuration (Receiving)",
+                          style: TextStyle(
+                            color: Color(0xFF3B82F6),
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: _buildDialogField(
+                                controller: imapHostController,
+                                label: "IMAP Host",
+                                hint: "imap.domain.com",
+                                icon: Icons.dns_outlined,
+                                validator: (value) => value == null || value.trim().isEmpty ? "Required" : null,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              flex: 2,
+                              child: _buildDialogField(
+                                controller: imapPortController,
+                                label: "IMAP Port",
+                                hint: "993",
+                                icon: Icons.numbers,
+                                keyboardType: TextInputType.number,
+                                validator: (value) {
+                                  if (value == null || value.trim().isEmpty) return "Required";
+                                  if (int.tryParse(value) == null) return "Invalid port";
+                                  return null;
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+
+                        const Text(
+                          "SMTP Configuration (Sending)",
+                          style: TextStyle(
+                            color: Color(0xFF10B981),
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: _buildDialogField(
+                                controller: smtpHostController,
+                                label: "SMTP Host",
+                                hint: "smtp.domain.com",
+                                icon: Icons.dns_outlined,
+                                validator: (value) => value == null || value.trim().isEmpty ? "Required" : null,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              flex: 2,
+                              child: _buildDialogField(
+                                controller: smtpPortController,
+                                label: "SMTP Port",
+                                hint: "465",
+                                icon: Icons.numbers,
+                                keyboardType: TextInputType.number,
+                                validator: (value) {
+                                  if (value == null || value.trim().isEmpty) return "Required";
+                                  if (int.tryParse(value) == null) return "Invalid port";
+                                  return null;
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+
+                        Row(
+                          children: [
+                            OutlinedButton(
+                              onPressed: isSaving
+                                  ? null
+                                  : () async {
+                                      Navigator.of(dialogContext).pop();
+                                      await AuthService.logout();
+                                      if (mounted) {
+                                        Navigator.pushReplacement(
+                                          context,
+                                          MaterialPageRoute(builder: (context) => const LoginScreen()),
+                                        );
+                                      }
+                                    },
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF94A3B8),
+                                side: const BorderSide(color: Color(0xFF475569)),
+                                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                              child: const Text(
+                                "Logout",
+                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: isSaving
+                                    ? null
+                                    : () async {
+                                        if (formKey.currentState!.validate()) {
+                                          setState(() {
+                                            isSaving = true;
+                                            errorMessage = null;
+                                          });
+
+                                          try {
+                                            final body = {
+                                              "orgcode": orgCode,
+                                              "imapHost": imapHostController.text.trim(),
+                                              "imapPort": int.parse(imapPortController.text.trim()),
+                                              "imapSecure": true,
+                                              "smtpHost": smtpHostController.text.trim(),
+                                              "smtpPort": int.parse(smtpPortController.text.trim()),
+                                              "smtpSecure": true
+                                            };
+
+                                            final saveRes = await http.post(
+                                              Uri.parse('${AppConfig.instance.baseUrl}/org-config/save'),
+                                              headers: {"Content-Type": "application/json"},
+                                              body: jsonEncode(body),
+                                            );
+
+                                            if (saveRes.statusCode == 200) {
+                                               Navigator.of(dialogContext).pop();
+                                               this.setState(() {
+                                                 _isOrgConfigMissing = false;
+                                               });
+                                               _fetchInboxFromBackend();
+                                             } else {
+                                              final errBody = jsonDecode(saveRes.body);
+                                              setState(() {
+                                                errorMessage = errBody['error'] ?? "Failed to save configuration details";
+                                                isSaving = false;
+                                              });
+                                            }
+                                          } catch (e) {
+                                            setState(() {
+                                              errorMessage = "Error: $e";
+                                              isSaving = false;
+                                            });
+                                          }
+                                        }
+                                      },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF3B82F6),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  elevation: 0,
+                                ),
+                                child: isSaving
+                                    ? const SizedBox(
+                                        height: 18,
+                                        width: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Text(
+                                        "Save & Setup",
+                                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+                                      ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildDialogField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    required IconData icon,
+    TextInputType keyboardType = TextInputType.text,
+    String? Function(String?)? validator,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            color: Color(0xFF94A3B8),
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFF334155)),
+          ),
+          child: TextFormField(
+            controller: controller,
+            keyboardType: keyboardType,
+            style: const TextStyle(color: Colors.white, fontSize: 13.5),
+            validator: validator,
+            decoration: InputDecoration(
+              hintText: hint,
+              hintStyle: const TextStyle(color: Color(0xFF475569), fontSize: 13),
+              prefixIcon: Icon(icon, size: 16, color: const Color(0xFF64748B)),
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Future<void> _fetchInboxFromBackend({bool loadMore = false}) async {
@@ -157,7 +592,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();
       String? email = prefs.getString('email');
-      String? password = prefs.getString('password');
+      String? password = _getMailPassword(prefs);
       if (email == null) return;
 
       final Map<String, String> headers = {'X-Email': email};
@@ -200,6 +635,65 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     }
   }
 
+  Future<void> _silentFetchInbox() async {
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      String? email = prefs.getString("email");
+      String? password = _getMailPassword(prefs);
+      if (email == null) return;
+
+      final Map<String, String> headers = {"X-Email": email};
+      if (password != null && password.isNotEmpty) {
+        headers["X-Password"] = password;
+      }
+
+      final response = await http.get(
+        Uri.parse("${AppConfig.instance.baseUrl}/email/inbox?page=0&size=50"),
+        headers: headers,
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        final List<Map<String, dynamic>> fetchedEmails = data.map((e) => Map<String, dynamic>.from(e)).toList();
+
+        if (fetchedEmails.isEmpty) return;
+
+        setState(() {
+          dynamic selectedUid;
+          if (_selectedEmailIndex != null &&
+              _selectedFolder == "Inbox" &&
+              _selectedEmailIndex! < _folders["Inbox"]!.length) {
+            selectedUid = _folders["Inbox"]![_selectedEmailIndex!]["uid"];
+          }
+
+          final currentInbox = _folders["Inbox"]!;
+          final existingUids = currentInbox.map((e) => e["uid"]).toSet();
+          final newEmails = fetchedEmails.where((e) => !existingUids.contains(e["uid"])).toList();
+
+          if (newEmails.isNotEmpty) {
+            currentInbox.insertAll(0, newEmails);
+          }
+
+          for (var fetched in fetchedEmails) {
+            int idx = currentInbox.indexWhere((e) => e["uid"] == fetched["uid"]);
+            if (idx != -1) {
+              currentInbox[idx]["isRead"] = fetched["isRead"];
+            }
+          }
+
+          if (selectedUid != null) {
+            int newIndex = currentInbox.indexWhere((e) => e["uid"] == selectedUid);
+            if (newIndex != -1) {
+              _selectedEmailIndex = newIndex;
+            }
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint("Silent fetch failed: $e");
+    }
+  }
+
   Future<void> _fetchSentFromBackend({bool loadMore = false}) async {
     if (loadMore) {
       if (_isSentLoadingMore || !_hasMoreSent) return;
@@ -219,7 +713,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();
       String? email = prefs.getString('email');
-      String? password = prefs.getString('password');
+      String? password = _getMailPassword(prefs);
       if (email == null) return;
 
       final Map<String, String> headers = {'X-Email': email};
@@ -277,7 +771,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();
       String? userEmail = prefs.getString('email');
-      String? password = prefs.getString('password');
+      String? password = _getMailPassword(prefs);
       if (userEmail == null) return;
 
       final Map<String, String> headers = {'X-Email': userEmail};
@@ -390,6 +884,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('email', email);
         await prefs.setString('password', tokenOrPassword);
+        await prefs.setString('mail_password', tokenOrPassword);
         setState(() {
           _isPasswordMissing = false;
         });
@@ -466,11 +961,17 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
   }
 
   Future<void> _sendEmail() async {
+    debugPrint("🚀 _sendEmail called!");
     final to = _toController.text;
-    if (to.isEmpty) return;
+    debugPrint("  To: '$to'");
+    if (to.isEmpty) {
+      debugPrint("  ❌ returning early: 'to' is empty");
+      return;
+    }
     
     final subject = _subjectController.text.isNotEmpty ? _subjectController.text : "(No Subject)";
     final content = _contentController.text;
+    debugPrint("  Subject: '$subject', Content length: ${content.length}");
 
     List<Map<String, String>> attachmentPayload = [];
     for (var file in _attachments) {
@@ -479,18 +980,37 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
           'fileName': file.name,
           'base64Content': base64Encode(file.bytes!),
         });
+      } else {
+        debugPrint("  ⚠️ Attachment '${file.name}' has null bytes");
       }
     }
+    debugPrint("  Attachments count: ${attachmentPayload.length}");
 
     try {
        SharedPreferences prefs = await SharedPreferences.getInstance();
        String? userEmail = prefs.getString('email');
-       String? userPassword = prefs.getString('password');
-       if (userEmail == null || userPassword == null) return;
+       String? userPassword = _getMailPassword(prefs);
+       debugPrint("  userEmail from prefs: '$userEmail'");
+       debugPrint("  userPassword is null? ${userPassword == null}");
+       if (userEmail == null) {
+         debugPrint("  ❌ returning early: userEmail is null");
+         return;
+       }
+
+       final Map<String, String> headers = {
+         'Content-Type': 'application/json',
+         'X-Email': userEmail,
+       };
+       if (userPassword != null && userPassword.isNotEmpty) {
+         headers['X-Password'] = userPassword;
+       }
+
+       final url = '${AppConfig.instance.baseUrl}/email/send';
+       debugPrint("  Sending POST request to '$url' with headers: $headers");
 
        final response = await http.post(
-          Uri.parse('${AppConfig.instance.baseUrl}/email/send'),
-          headers: {'Content-Type': 'application/json', 'X-Email': userEmail, 'X-Password': userPassword},
+          Uri.parse(url),
+          headers: headers,
            body: jsonEncode({
               'to': to,
               'cc': _ccController.text,
@@ -499,12 +1019,17 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
               'attachments': attachmentPayload,
            }),
        );
+       debugPrint("  Response status: ${response.statusCode}");
+       debugPrint("  Response body: ${response.body}");
        if (response.statusCode == 200) {
           _showSnackBar("Email Sent successfully!");
           // Wait a moment for the server to sync then refresh
           Future.delayed(const Duration(seconds: 2), () => _fetchSentFromBackend());
+       } else {
+          _showSnackBar("Failed to send: ${response.body}");
        }
     } catch (e) {
+       debugPrint("  ❌ Exception in _sendEmail: $e");
        _showSnackBar("API Error: $e");
     }
 
@@ -551,7 +1076,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();
       String? userEmail = prefs.getString('email');
-      String? password = prefs.getString('password');
+      String? password = _getMailPassword(prefs);
       if (userEmail == null) return;
 
       final Map<String, String> headers = {'X-Email': userEmail};
@@ -727,6 +1252,8 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+
+
     final screenWidth = MediaQuery.of(context).size.width;
     final bool isDesktop = screenWidth >= 900;
     final bool isTablet = screenWidth >= 600 && screenWidth < 900;
@@ -762,22 +1289,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
           
           if (_selectedApp == "Mail")
             Expanded(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                transitionBuilder: (Widget child, Animation<double> animation) {
-                  return FadeTransition(
-                    opacity: animation,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0, 0.01),
-                        end: Offset.zero,
-                      ).animate(animation),
-                      child: child,
-                    ),
-                  );
-                },
+              child: SizedBox.expand(
                 child: _isComposing 
                   ? _buildComposeView(key: const ValueKey('compose')) 
                   : _buildMessageDetail(key: const ValueKey('detail')),
@@ -1578,7 +2090,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
 
       if (response.statusCode == 200) {
         // Correct password! Save password to preferences
-        await prefs.setString('password', password);
+        await prefs.setString('mail_password', password);
         
         final List<dynamic> data = jsonDecode(response.body);
         final List<Map<String, dynamic>> emails = data.map((e) => Map<String, dynamic>.from(e)).toList();
@@ -1951,9 +2463,13 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
-                            "To: ${email['toName'] ?? (email['toEmail'] ?? 'me')}",
-                            style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                          Flexible(
+                            child: Text(
+                              "To: ${email['toName'] ?? (email['toEmail'] ?? 'me')}",
+                              style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
                           ),
                           const Icon(Icons.arrow_drop_down, size: 16, color: Color(0xFF64748B)),
                         ],
@@ -1963,13 +2479,9 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                 ),
               ),
               if (!isMobile) ...[
-                Flexible(
-                  child: Text(
-                    _formatDate(email['date']),
-                    style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 1,
-                  ),
+                Text(
+                  _formatDate(email['date']),
+                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
                 ),
                 const SizedBox(width: 12),
                 Container(

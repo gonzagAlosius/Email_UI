@@ -80,6 +80,7 @@ class AuthService {
     await prefs.remove(_sessionDataKey);
     await prefs.remove(_emailKey);
     await prefs.remove('password');
+    await prefs.remove('mail_password');
     debugPrint('✅ Session cleaned up on logout');
   }
 

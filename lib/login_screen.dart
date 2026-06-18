@@ -114,6 +114,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('email', email);
         await prefs.setString('password', pass);
+        await prefs.remove('is_microsoft_login');
+        await prefs.remove('is_google_login');
         if (mounted) {
           Navigator.pushReplacement(
             context,
@@ -168,6 +170,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('email', email);
         await prefs.setString('password', accessToken);
+        await prefs.setBool('is_google_login', true);
+        await prefs.remove('is_microsoft_login');
         if (mounted) {
           Navigator.pushReplacement(
             context,
@@ -251,6 +255,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         await prefs.setString('email', email);
         await prefs.setString('password', accessToken);
         await prefs.setBool('is_microsoft_login', true);
+        await prefs.remove('is_google_login');
         if (mounted) {
           Navigator.pushReplacement(
             context,
