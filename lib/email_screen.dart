@@ -56,6 +56,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
   String _selectedFolder = "Inbox";
   int? _selectedEmailIndex;
   bool _isComposing = false;
+  bool _isReplyingInline = false;
   bool _showEmailDetails = false;
   bool _isStarred = false;
   String? _selectedReaction;
@@ -912,6 +913,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     setState(() {
       _selectedFolder = folder;
       _isComposing = false;
+      _isReplyingInline = false;
       _selectedEmailIndex = null;
     });
 
@@ -934,6 +936,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
       _contentController.clear();
       _attachments = [];
       _isComposing = true;
+      _isReplyingInline = false;
       _showCcBcc = false;
       _selectedEmailIndex = null;
     });
@@ -1036,6 +1039,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
 
     setState(() {
       _isComposing = false;
+      _isReplyingInline = false;
       _selectedFolder = "Sent";
       _selectedEmailIndex = null; 
     });
@@ -2727,8 +2731,19 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                       ),
                       _buildEmojiButton(context, padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 32, minHeight: 32), size: 18),
                       IconButton(
-                        onPressed: () => setState(() => _isComposing = true),
-                        icon: const Icon(Icons.reply_rounded, color: Color(0xFF475569), size: 18),
+                        onPressed: () {
+                          setState(() {
+                            _isComposing = false;
+                            _isReplyingInline = true;
+                            _toController.text = email['email'] ?? email['sender'] ?? '';
+                            _subjectController.text = email['subject'] != null 
+                                ? (email['subject'].toString().startsWith('Re:') ? email['subject'] : 'Re: ${email['subject']}')
+                                : 'Re:';
+                            _contentController.clear();
+                            _attachments = [];
+                          });
+                        },
+                        icon: const Icon(Icons.reply_rounded, color: const Color(0xFF475569), size: 18),
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                         tooltip: "Reply",
@@ -2770,8 +2785,19 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                 ),
                 const SizedBox(width: 8),
                 IconButton(
-                  onPressed: () => setState(() => _isComposing = true),
-                  icon: const Icon(Icons.reply_rounded, color: Color(0xFF64748B), size: 18),
+                  onPressed: () {
+                    setState(() {
+                      _isComposing = false;
+                      _isReplyingInline = true;
+                      _toController.text = email['email'] ?? email['sender'] ?? '';
+                      _subjectController.text = email['subject'] != null 
+                          ? (email['subject'].toString().startsWith('Re:') ? email['subject'] : 'Re: ${email['subject']}')
+                          : 'Re:';
+                      _contentController.clear();
+                      _attachments = [];
+                    });
+                  },
+                  icon: const Icon(Icons.reply_rounded, color: const Color(0xFF64748B), size: 18),
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
                 ),
@@ -2834,6 +2860,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
             padding: EdgeInsets.symmetric(vertical: 16), 
             child: Divider(color: Color(0xFFE2E8F0), thickness: 1),
           ),
+          if (_isReplyingInline) _buildInlineReplyEditor(email),
           Expanded(
             child: _isLoadingDetails
                 ? const Center(child: CircularProgressIndicator())
@@ -2913,35 +2940,216 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                     ),
                   ),
           ),
-          Padding(
-            padding: const EdgeInsets.only(top: 16),
-            child: Row(
-              children: [
-                OutlinedButton.icon(
-                  onPressed: () => setState(() => _isComposing = true),
-                  icon: const Icon(Icons.reply_rounded, size: 16),
-                  label: const Text("Reply"),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF475569),
-                    side: const BorderSide(color: Color(0xFFCBD5E1)),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          if (!_isReplyingInline)
+            Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: Row(
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _isComposing = false;
+                        _isReplyingInline = true;
+                        _toController.text = email['email'] ?? email['sender'] ?? '';
+                        _subjectController.text = email['subject'] != null 
+                            ? (email['subject'].toString().startsWith('Re:') ? email['subject'] : 'Re: ${email['subject']}')
+                            : 'Re:';
+                        _contentController.clear();
+                        _attachments = [];
+                      });
+                    },
+                    icon: const Icon(Icons.reply_rounded, size: 16),
+                    label: const Text("Reply"),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF475569),
+                      side: const BorderSide(color: const Color(0xFFCBD5E1)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.forward_rounded, size: 16),
-                  label: const Text("Forward"),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF475569),
-                    side: const BorderSide(color: Color(0xFFCBD5E1)),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  const SizedBox(width: 12),
+                  OutlinedButton.icon(
+                    onPressed: () {},
+                    icon: const Icon(Icons.forward_rounded, size: 16),
+                    label: const Text("Forward"),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF475569),
+                      side: const BorderSide(color: const Color(0xFFCBD5E1)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInlineReplyEditor(Map<String, dynamic> email) {
+    final String sender = email['sender'] ?? 'Unknown';
+    final String emailAddress = email['email'] ?? '';
+
+    return Container(
+      margin: const EdgeInsets.only(top: 16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Inline header
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 14,
+                backgroundColor: const Color(0xFFE0E7FF),
+                child: Text(
+                  sender.isNotEmpty ? sender.substring(0, 1).toUpperCase() : 'U',
+                  style: const TextStyle(color: Color(0xFF4F46E5), fontWeight: FontWeight.bold, fontSize: 11),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Reply to $sender",
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B)),
+                    ),
+                    if (emailAddress.isNotEmpty)
+                      Text(
+                        emailAddress,
+                        style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                      ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close_rounded, size: 18, color: Color(0xFF94A3B8)),
+                onPressed: () {
+                  setState(() {
+                    _isReplyingInline = false;
+                    _contentController.clear();
+                    _attachments = [];
+                  });
+                },
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                tooltip: "Discard",
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Message Body Field
+          Container(
+            constraints: const BoxConstraints(minHeight: 100, maxHeight: 180),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFCBD5E1).withOpacity(0.7)),
+            ),
+            child: TextField(
+              controller: _contentController,
+              maxLines: null,
+              autofocus: true,
+              style: const TextStyle(fontSize: 14, height: 1.5, color: Color(0xFF334155)),
+              decoration: const InputDecoration(
+                hintText: "Write your reply here...",
+                hintStyle: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.all(12),
+              ),
+            ),
+          ),
+
+          // Attachments row (if any)
+          if (_attachments.isNotEmpty)
+            Container(
+              height: 40,
+              margin: const EdgeInsets.only(top: 8),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: _attachments.asMap().entries.map((entry) {
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Chip(
+                        label: Text(
+                          entry.value.name,
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                        onDeleted: () => _removeAttachment(entry.key),
+                        deleteIconColor: Colors.red,
+                        backgroundColor: const Color(0xFFF1F5F9),
+                        side: const BorderSide(color: Color(0xFFE2E8F0)),
+                        padding: EdgeInsets.zero,
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+
+          const SizedBox(height: 12),
+
+          // Bottom Toolbar
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Send & Attach Buttons
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: _sendEmail,
+                    icon: const Icon(Icons.send_rounded, size: 14),
+                    label: const Text("Send"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0B57D0),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.attach_file_rounded, color: Color(0xFF475569), size: 20),
+                    onPressed: _pickAttachments,
+                    tooltip: "Attach file",
+                  ),
+                ],
+              ),
+
+              // Discard Button
+              IconButton(
+                icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFFF5F56), size: 20),
+                onPressed: () {
+                  setState(() {
+                    _isReplyingInline = false;
+                    _contentController.clear();
+                    _attachments = [];
+                  });
+                },
+                tooltip: "Discard",
+              ),
+            ],
           ),
         ],
       ),
