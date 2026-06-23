@@ -758,17 +758,20 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     }
   }
 
-  Future<void> _fetchEmailDetails(Map<String, dynamic> email, int index) async {
-    if (email['content'] != null && email['content'].toString().isNotEmpty) {
+  Future<void> _fetchEmailDetails(Map<String, dynamic> email, int index, {bool wasUnread = false}) async {
+    final bool hasContent = email['content'] != null && email['content'].toString().isNotEmpty;
+    if (hasContent && !wasUnread) {
       return;
     }
     if (email['uid'] == null) {
       return;
     }
 
-    setState(() {
-      _isLoadingDetails = true;
-    });
+    if (!hasContent) {
+      setState(() {
+        _isLoadingDetails = true;
+      });
+    }
 
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -2140,12 +2143,13 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                         return InkWell(
                           onTap: () {
                             final originalIndex = allEmails.indexOf(email);
+                            final bool wasUnread = email['isRead'] != true;
                             setState(() {
                               _selectedEmailIndex = originalIndex;
                               _isComposing = false;
                               email['isRead'] = true;
                             });
-                            _fetchEmailDetails(email, originalIndex);
+                            _fetchEmailDetails(email, originalIndex, wasUnread: wasUnread);
                           },
                           child: Container(
                             color: isSelected ? const Color(0xFFEFF6FF) : Colors.transparent,
