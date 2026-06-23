@@ -43,6 +43,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
   final TextEditingController _promptPasswordController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = "";
+  bool _isSearching = false;
 
   final ScrollController _scrollController = ScrollController();
   int _inboxPage = 0;
@@ -1268,37 +1269,70 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
         } else if (_selectedEmailIndex != null) {
           mainContent = _buildMessageDetail(key: const ValueKey('detail'));
         } else {
-          mainContent = _buildMessageList();
+          mainContent = KeyedSubtree(key: const ValueKey('list'), child: _buildMessageList());
         }
       } else if (_selectedApp == "Calendar") {
-        mainContent = const CalendarView();
+        mainContent = const CalendarView(key: ValueKey('calendar'));
       } else {
-        mainContent = Center(child: Text("$_selectedApp View"));
+        mainContent = Center(key: ValueKey(_selectedApp), child: Text("$_selectedApp View"));
       }
     } else {
       mainContent = Row(
+        key: ValueKey('main-row-$_selectedApp'),
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (isDesktop && _selectedApp == "Mail") SizedBox(width: 250, child: _buildFolderSidebar()),
-          if (isDesktop && _selectedApp == "Mail") const VerticalDivider(width: 1, thickness: 1, color: Color(0xFFE2E8F0)),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOut,
+            width: (isDesktop && _selectedApp == "Mail") ? 250 : 0,
+            child: (isDesktop && _selectedApp == "Mail")
+                ? SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const NeverScrollableScrollPhysics(),
+                    child: SizedBox(
+                      width: 250,
+                      child: _buildFolderSidebar(),
+                    ),
+                  )
+                : const SizedBox(),
+          ),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOut,
+            width: (isDesktop && _selectedApp == "Mail") ? 1 : 0,
+            child: const VerticalDivider(width: 1, thickness: 1, color: Color(0xFFE2E8F0)),
+          ),
           
-          if (_selectedApp == "Mail") 
+          if (_selectedApp == "Mail") ...[
             SizedBox(width: isTablet ? 320 : 360, child: _buildMessageList()),
-          if (_selectedApp == "Mail") 
             const VerticalDivider(width: 1, thickness: 1, color: Color(0xFFE2E8F0)),
-          
-          if (_selectedApp == "Mail")
             Expanded(
               child: SizedBox.expand(
-                child: _isComposing 
-                  ? _buildComposeView(key: const ValueKey('compose')) 
-                  : _buildMessageDetail(key: const ValueKey('detail')),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 250),
+                  transitionBuilder: (Widget child, Animation<double> animation) {
+                    return FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(0.01, 0.0),
+                          end: Offset.zero,
+                        ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: _isComposing 
+                    ? _buildComposeView(key: const ValueKey('compose')) 
+                    : _buildMessageDetail(key: const ValueKey('detail')),
+                ),
               ),
-            )
-          else if (_selectedApp == "Calendar")
-            const Expanded(child: CalendarView())
-          else
-            Expanded(child: Center(child: Text("$_selectedApp View"))),
+            ),
+          ] else if (_selectedApp == "Calendar") ...[
+            const Expanded(child: CalendarView(key: ValueKey('calendar-desktop')))
+          ] else ...[
+            Expanded(key: ValueKey(_selectedApp), child: Center(child: Text("$_selectedApp View"))),
+          ],
         ],
       );
     }
@@ -1307,10 +1341,12 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
       key: _scaffoldKey,
       backgroundColor: const Color(0xFF0F172A),
       drawer: isDesktop ? null : Drawer(
+        width: _selectedApp == "Mail" ? 330 : 80,
         child: Row(
           children: [
             _buildThinRail(),
-            Expanded(child: _buildFolderSidebar()),
+            if (_selectedApp == "Mail")
+              Expanded(child: _buildFolderSidebar()),
           ],
         ),
       ),
@@ -1331,7 +1367,22 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                     ),
                     child: ClipRRect(
                       borderRadius: isMobile ? BorderRadius.zero : const BorderRadius.only(topLeft: Radius.circular(24)),
-                      child: mainContent,
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 250),
+                        transitionBuilder: (Widget child, Animation<double> animation) {
+                          return FadeTransition(
+                            opacity: animation,
+                            child: SlideTransition(
+                              position: Tween<Offset>(
+                                begin: const Offset(0.005, 0.0),
+                                end: Offset.zero,
+                              ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+                              child: child,
+                            ),
+                          );
+                        },
+                        child: mainContent,
+                      ),
                     ),
                   ),
                 ),
@@ -1598,120 +1649,278 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
   }
 
   Widget _buildAppTopBar(bool isDesktop) {
-    return Container(
-      width: double.infinity,
-      height: 48,
-      color: const Color(0xFF0F172A),
-      padding: const EdgeInsets.only(left: 16, right: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          if (!isDesktop) ...[
+    final screenWidth = MediaQuery.of(context).size.width;
+    final bool isMobile = screenWidth < 600;
+    final bool isTablet = screenWidth >= 600 && screenWidth < 900;
+    final double barHeight = isMobile ? 56 : 64;
+
+    if (isMobile && _isSearching) {
+      return Container(
+        width: double.infinity,
+        height: barHeight,
+        color: const Color(0xFF0F172A),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              onPressed: () {
+                setState(() {
+                  _isSearching = false;
+                  _searchController.clear();
+                  _searchQuery = "";
+                });
+              },
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Container(
+                height: 38,
+                child: TextField(
+                  controller: _searchController,
+                  autofocus: true,
+                  onChanged: (value) {
+                    setState(() {
+                      _searchQuery = value;
+                    });
+                  },
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                  decoration: InputDecoration(
+                    contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                    hintText: "Search...",
+                    hintStyle: const TextStyle(color: Colors.white38, fontSize: 14),
+                    prefixIcon: const Icon(Icons.search, size: 18, color: Colors.white38),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? InkWell(
+                            onTap: () {
+                              _searchController.clear();
+                              setState(() {
+                                _searchQuery = "";
+                              });
+                            },
+                            child: const Icon(Icons.clear, size: 18, color: Colors.white38),
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: Colors.white.withOpacity(0.08),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      borderSide: BorderSide.none,
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+        ),
+      );
+    }
+
+    // Build Left Section
+    Widget leftSection;
+    if (isDesktop) {
+      leftSection = SizedBox(
+        width: 330,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Row(
+              children: [
+                Container(width: 12, height: 12, decoration: const BoxDecoration(color: Color(0xFFFF5F56), shape: BoxShape.circle)),
+                const SizedBox(width: 8),
+                Container(width: 12, height: 12, decoration: const BoxDecoration(color: Color(0xFFFFBD2E), shape: BoxShape.circle)),
+                const SizedBox(width: 8),
+                Container(width: 12, height: 12, decoration: const BoxDecoration(color: Color(0xFF27C93F), shape: BoxShape.circle)),
+              ],
+            ),
+            const SizedBox(width: 24),
+            const Flexible(
+              child: Text(
+                "BotsEdge mail",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.2,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      );
+    } else if (isTablet) {
+      leftSection = SizedBox(
+        width: 200,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
             IconButton(
               icon: const Icon(Icons.menu, color: Colors.white),
               onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: 12),
+            const Flexible(
+              child: Text(
+                "BotsEdge mail",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.2,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
-          if (isDesktop) Row(
-            children: [
-              Container(width: 12, height: 12, decoration: const BoxDecoration(color: Color(0xFFFF5F56), shape: BoxShape.circle)),
-              const SizedBox(width: 8),
-              Container(width: 12, height: 12, decoration: const BoxDecoration(color: Color(0xFFFFBD2E), shape: BoxShape.circle)),
-              const SizedBox(width: 8),
-              Container(width: 12, height: 12, decoration: const BoxDecoration(color: Color(0xFF27C93F), shape: BoxShape.circle)),
-              const SizedBox(width: 24),
-            ],
+        ),
+      );
+    } else {
+      leftSection = Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.menu, color: Colors.white),
+            onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
           ),
-          const Flexible(
-            child: Text(
-              "Botsedge Workspace", 
-              style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
-              overflow: TextOverflow.ellipsis,
+          const SizedBox(width: 8),
+          const Text(
+            "BotsEdge mail",
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.2,
             ),
           ),
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: isDesktop ? 220 : 130,
-                    height: 32,
-                    margin: const EdgeInsets.only(right: 12),
-                    child: TextField(
-                      controller: _searchController,
-                      onChanged: (value) {
-                        setState(() {
-                          _searchQuery = value;
-                        });
-                      },
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
-                      decoration: InputDecoration(
-                        contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                        hintText: "Search...",
-                        hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
-                        prefixIcon: const Icon(Icons.search, size: 16, color: Colors.white38),
-                        suffixIcon: _searchQuery.isNotEmpty
-                            ? InkWell(
-                                onTap: () {
-                                  _searchController.clear();
-                                  setState(() {
-                                    _searchQuery = "";
-                                  });
-                                },
-                                child: const Icon(Icons.clear, size: 16, color: Colors.white38),
-                              )
-                            : null,
-                        filled: true,
-                        fillColor: Colors.white.withOpacity(0.08),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide.none,
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide.none,
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
-                        ),
-                      ),
-                    ),
+        ],
+      );
+    }
+
+    // Build Middle Section
+    Widget middleSection;
+    if (!isMobile) {
+      middleSection = Expanded(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: isDesktop ? 520 : 360),
+            child: Container(
+              height: 38,
+              child: TextField(
+                controller: _searchController,
+                onChanged: (value) {
+                  setState(() {
+                    _searchQuery = value;
+                  });
+                },
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+                decoration: InputDecoration(
+                  contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                  hintText: "Search mail...",
+                  hintStyle: const TextStyle(color: Colors.white38, fontSize: 14),
+                  prefixIcon: const Icon(Icons.search, size: 18, color: Colors.white38),
+                  suffixIcon: _searchQuery.isNotEmpty
+                      ? InkWell(
+                          onTap: () {
+                            _searchController.clear();
+                            setState(() {
+                              _searchQuery = "";
+                            });
+                          },
+                          child: const Icon(Icons.clear, size: 18, color: Colors.white38),
+                        )
+                      : null,
+                  filled: true,
+                  fillColor: Colors.white.withOpacity(0.08),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide.none,
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.notifications_none, size: 20, color: Colors.white70),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    onPressed: () {
-                      _showSnackBar("No new notifications");
-                    },
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide.none,
                   ),
-                  const SizedBox(width: 12),
-                  InkWell(
-                    onTap: _showProfilePopup,
-                    borderRadius: BorderRadius.circular(16),
-                    child: CircleAvatar(
-                      radius: 16,
-                      backgroundColor: const Color(0xFF6366F1),
-                      child: Text(
-                        _userInitials,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
                   ),
-                ],
+                ),
               ),
             ),
           ),
+        ),
+      );
+    } else {
+      middleSection = const Expanded(child: SizedBox());
+    }
+
+    // Build Right Section
+    Widget rightSection = Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        if (isMobile) ...[
+          IconButton(
+            icon: const Icon(Icons.search, color: Colors.white70),
+            onPressed: () => setState(() => _isSearching = true),
+            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+            padding: EdgeInsets.zero,
+          ),
+          const SizedBox(width: 4),
+        ],
+        IconButton(
+          icon: const Icon(Icons.notifications_none, color: Colors.white70),
+          onPressed: () => _showSnackBar("No new notifications"),
+          constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+          padding: EdgeInsets.zero,
+        ),
+        const SizedBox(width: 8),
+        InkWell(
+          onTap: _showProfilePopup,
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: CircleAvatar(
+              radius: 16,
+              backgroundColor: const Color(0xFF6366F1),
+              child: Text(
+                _userInitials,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+
+    return Container(
+      width: double.infinity,
+      height: barHeight,
+      color: const Color(0xFF0F172A),
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 24),
+      alignment: Alignment.center,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          leftSection,
+          middleSection,
+          rightSection,
         ],
       ),
     );
@@ -1753,18 +1962,30 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     return InkWell(
       onTap: () {
         setState(() => _selectedApp = appName);
-        if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
+        if (appName != "Mail" && (_scaffoldKey.currentState?.isDrawerOpen ?? false)) {
           Navigator.pop(context);
         }
       },
-      child: Container(
+      borderRadius: BorderRadius.circular(16),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
         margin: const EdgeInsets.symmetric(vertical: 12),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: isSelected ? const Color(0xFF2563EB) : Colors.transparent,
           borderRadius: BorderRadius.circular(16),
         ),
-        child: Icon(icon, color: isSelected ? Colors.white : const Color(0xFF94A3B8), size: 26),
+        child: TweenAnimationBuilder<Color?>(
+          duration: const Duration(milliseconds: 200),
+          tween: ColorTween(
+            begin: isSelected ? Colors.white : const Color(0xFF94A3B8),
+            end: isSelected ? Colors.white : const Color(0xFF94A3B8),
+          ),
+          builder: (context, color, child) {
+            return Icon(icon, color: color, size: 26);
+          },
+        ),
       ),
     );
   }
