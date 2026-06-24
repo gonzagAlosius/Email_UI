@@ -9,6 +9,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:aad_oauth/aad_oauth.dart';
 import 'package:aad_oauth/model/config.dart';
 import 'main.dart';
+import 'services/notification_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -116,6 +117,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         await prefs.setString('password', pass);
         await prefs.remove('is_microsoft_login');
         await prefs.remove('is_google_login');
+        // Register this device for push notifications
+        await _registerDeviceForPush(email);
         if (mounted) {
           Navigator.pushReplacement(
             context,
@@ -172,6 +175,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         await prefs.setString('password', accessToken);
         await prefs.setBool('is_google_login', true);
         await prefs.remove('is_microsoft_login');
+        // Register this device for push notifications
+        await _registerDeviceForPush(email);
         if (mounted) {
           Navigator.pushReplacement(
             context,
@@ -256,6 +261,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         await prefs.setString('password', accessToken);
         await prefs.setBool('is_microsoft_login', true);
         await prefs.remove('is_google_login');
+        // Register this device for push notifications
+        await _registerDeviceForPush(email);
         if (mounted) {
           Navigator.pushReplacement(
             context,
@@ -269,6 +276,40 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       _snack('Microsoft Sign-In Error: $e', true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  /// Registers this device for push notifications after a successful login.
+  /// Links the user's email to their OneSignal subscription ID on the backend.
+  Future<void> _registerDeviceForPush(String email) async {
+    try {
+      // 1. Associate user email as external ID in OneSignal
+      NotificationService.loginUser(email);
+
+      // 2. Wait briefly for the subscription ID to be available
+      await Future.delayed(const Duration(seconds: 2));
+
+      // 3. Get the device subscription ID from OneSignal
+      final String? subscriptionId = NotificationService.getSubscriptionId();
+      if (subscriptionId == null || subscriptionId.isEmpty) {
+        debugPrint('[OneSignal] Subscription ID not yet available. Skipping registration.');
+        return;
+      }
+
+      // 4. POST the subscription ID to the backend
+      final response = await http.post(
+        Uri.parse('${AppConfig.instance.baseUrl}/api/notifications/register'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email, 'subscriptionId': subscriptionId}),
+      );
+
+      if (response.statusCode == 200) {
+        debugPrint('[OneSignal] Device registered for push notifications: $subscriptionId');
+      } else {
+        debugPrint('[OneSignal] Failed to register device: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('[OneSignal] Error registering device for push: $e');
     }
   }
 
@@ -297,22 +338,19 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
             stops: [0.0, 0.5, 1.0],
           ),
         ),
-        // Column: Spacer ratio pushes card to upper-center (not bottom-heavy)
-        child: Column(
-          children: [
-            const Spacer(flex: 2),   // 2 parts above  → card sits upper-center
-            FadeTransition(
-              opacity: _fade,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              child: FadeTransition(
+                opacity: _fade,
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 400),
                   child: _buildCard(),
                 ),
               ),
             ),
-            const Spacer(flex: 3),   // 3 parts below
-          ],
+          ),
         ),
       ),
     );

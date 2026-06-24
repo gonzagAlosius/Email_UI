@@ -5,8 +5,7 @@ import 'package:aad_oauth/aad_oauth.dart';
 import 'package:aad_oauth/model/config.dart';
 import 'config/app_config.dart';
 
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
+import 'utils/web_helpers.dart';
 
 import 'services/auth_service.dart';
 import 'email_screen.dart';
@@ -58,7 +57,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
           // Clean URL token for security and hygiene
           try {
-            html.window.history.replaceState(null, 'Email Client', '/#/');
+            replaceUrlState('/#/');
           } catch (e) {
             debugPrint('⚠️ Could not replace URL history: $e');
           }
