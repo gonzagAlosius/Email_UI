@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -2488,7 +2489,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
           SizedBox(height: isMobile ? 16 : 32),
 
           // To field
-          _buildStyledInput(
+          RecipientChipsInput(
             controller: _toController,
             label: "To",
             hint: "recipient@example.com",
@@ -2500,7 +2501,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
           ),
           if (_showCcBcc) ...[
             const SizedBox(height: 10),
-            _buildStyledInput(
+            RecipientChipsInput(
               controller: _ccController,
               label: "Cc",
               hint: "carbon.copy@example.com",
@@ -2705,6 +2706,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     return Container(
       key: key,
       color: Colors.white,
+      constraints: const BoxConstraints.expand(),
       padding: EdgeInsets.symmetric(horizontal: isMobile ? 16 : 32, vertical: isMobile ? 20 : 28),
       child: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
@@ -3166,12 +3168,14 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: const Color(0xFFCBD5E1).withOpacity(0.7)),
               ),
-              child: TextField(
+              child: RecipientChipsInput(
                 controller: _toController,
-                style: const TextStyle(fontSize: 14, color: Color(0xFF334155)),
+                label: "To",
+                hint: "recipient@example.com",
+                icon: Icons.person_outline_rounded,
                 decoration: const InputDecoration(
-                  hintText: "To: recipient@example.com",
                   border: InputBorder.none,
+                  labelText: "To",
                   prefixIcon: Icon(Icons.person_outline_rounded, size: 16, color: Color(0xFF94A3B8)),
                   contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 ),
@@ -3468,3 +3472,266 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
   }
 
 }
+
+class RecipientChipsInput extends StatefulWidget {
+  final TextEditingController controller;
+  final String label;
+  final String hint;
+  final IconData icon;
+  final Widget? suffix;
+  final InputDecoration? decoration;
+
+  const RecipientChipsInput({
+    Key? key,
+    required this.controller,
+    required this.label,
+    required this.hint,
+    required this.icon,
+    this.suffix,
+    this.decoration,
+  }) : super(key: key);
+
+  @override
+  State<RecipientChipsInput> createState() => _RecipientChipsInputState();
+}
+
+class _RecipientChipsInputState extends State<RecipientChipsInput> {
+  final List<String> _chips = [];
+  final TextEditingController _textController = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _parseChipsFromController();
+    widget.controller.addListener(_onControllerChanged);
+    _focusNode.addListener(_onFocusChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
+    _focusNode.removeListener(_onFocusChanged);
+    _textController.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _onFocusChanged() {
+    setState(() {});
+  }
+
+  void _parseChipsFromController() {
+    final text = widget.controller.text.trim();
+    if (text.isNotEmpty) {
+      _chips.clear();
+      _chips.addAll(_parseEmails(text));
+    }
+  }
+
+  void _onControllerChanged() {
+    final currentText = widget.controller.text.trim();
+    final serializedChips = _chips.join(', ');
+    if (currentText != serializedChips) {
+      setState(() {
+        if (currentText.isEmpty) {
+          _chips.clear();
+          _textController.clear();
+        } else {
+          _chips.clear();
+          _chips.addAll(_parseEmails(currentText));
+        }
+      });
+    }
+  }
+
+  void _updateController() {
+    final serialized = _chips.join(', ');
+    if (widget.controller.text != serialized) {
+      widget.controller.removeListener(_onControllerChanged);
+      widget.controller.text = serialized;
+      widget.controller.addListener(_onControllerChanged);
+    }
+  }
+
+  List<String> _parseEmails(String text) {
+    if (text.trim().isEmpty) return [];
+    final parts = text.split(RegExp(r'[,;\s]+'));
+    return parts.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+  }
+
+  void _addEmails(String text) {
+    final parsed = _parseEmails(text);
+    if (parsed.isNotEmpty) {
+      setState(() {
+        _chips.addAll(parsed);
+        _textController.clear();
+        _updateController();
+      });
+    }
+  }
+
+  void _onInputChanged(String val) {
+    if (val.contains(',') || val.contains(';') || val.endsWith(' ')) {
+      _addEmails(val);
+    }
+  }
+
+  void _onInputSubmitted(String val) {
+    _addEmails(val);
+  }
+
+  String _resolveDisplayName(String email) {
+    final cleanEmail = email.trim().toLowerCase();
+    final Map<String, String> knownContacts = {
+      'regis.raj@botsedge.ai': 'Regis Raj',
+      'poli.nishithareddy@botsedge.ai': 'Poli Nishitha Reddy',
+    };
+    if (knownContacts.containsKey(cleanEmail)) {
+      return knownContacts[cleanEmail]!;
+    }
+
+    final match = RegExp(r'(.*?)\s*<(.*?)>').firstMatch(email);
+    if (match != null) {
+      String name = match.group(1)!.trim();
+      if (name.isNotEmpty) return name;
+    }
+
+    if (cleanEmail.contains('@')) {
+      final localPart = cleanEmail.split('@').first;
+      final parts = localPart.split(RegExp(r'[\._-]'));
+      final capitalizedParts = parts.map((part) {
+        if (part.isEmpty) return '';
+        return part[0].toUpperCase() + part.substring(1);
+      }).where((element) => element.isNotEmpty).toList();
+      
+      if (capitalizedParts.isNotEmpty) {
+        return capitalizedParts.join(' ');
+      }
+    }
+    return email;
+  }
+
+  Widget _buildChip(String email) {
+    final displayName = _resolveDisplayName(email);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.check_circle,
+            color: Color(0xFF10B981),
+            size: 16,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            displayName,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF334155),
+            ),
+          ),
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: () {
+              setState(() {
+                _chips.remove(email);
+                _updateController();
+              });
+            },
+            child: const Icon(
+              Icons.close,
+              size: 14,
+              color: Color(0xFF94A3B8),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final InputDecoration effectiveDecoration = (widget.decoration ?? InputDecoration(
+      labelText: widget.label,
+      prefixIcon: Icon(widget.icon, size: 20, color: const Color(0xFF94A3B8)),
+      suffixIcon: widget.suffix,
+      labelStyle: const TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+      hintStyle: const TextStyle(color: Color(0xFFCBD5E1)),
+      filled: true,
+      fillColor: const Color(0xFFF8FAFC),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFF2563EB), width: 1.5),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    )).copyWith(
+      hintText: _chips.isEmpty ? widget.hint : '',
+    );
+
+    return GestureDetector(
+      onTap: () => _focusNode.requestFocus(),
+      child: InputDecorator(
+        decoration: effectiveDecoration,
+        isEmpty: _chips.isEmpty && _textController.text.isEmpty,
+        isFocused: _focusNode.hasFocus,
+        child: Container(
+          constraints: const BoxConstraints(maxHeight: 120),
+          child: SingleChildScrollView(
+            child: Wrap(
+              spacing: 8.0,
+              runSpacing: 8.0,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                ..._chips.map((email) => _buildChip(email)),
+                Container(
+                  constraints: const BoxConstraints(minWidth: 80),
+                  child: IntrinsicWidth(
+                    child: Focus(
+                      onKeyEvent: (node, event) {
+                        if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.backspace) {
+                          if (_textController.text.isEmpty && _chips.isNotEmpty) {
+                            setState(() {
+                              _chips.removeLast();
+                              _updateController();
+                            });
+                            return KeyEventResult.handled;
+                          }
+                        }
+                        return KeyEventResult.ignored;
+                      },
+                      child: TextField(
+                        controller: _textController,
+                        focusNode: _focusNode,
+                        onChanged: _onInputChanged,
+                        onSubmitted: _onInputSubmitted,
+                        decoration: const InputDecoration(
+                          border: InputBorder.none,
+                          isDense: true,
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                        style: const TextStyle(fontSize: 14, color: Color(0xFF334155)),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
