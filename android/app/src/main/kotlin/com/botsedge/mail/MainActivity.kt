@@ -1,4 +1,4 @@
-package com.example.email_ui
+package com.botsedge.mail
 
 import io.flutter.embedding.android.FlutterActivity
 

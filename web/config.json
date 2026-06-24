@@ -1,4 +1,4 @@
 {
-  "baseUrl": "http://192.168.29.215:8081/api",
+  "baseUrl": "https://bbots.co.in/email/api",
   "productCode": 10
 }
