@@ -41,6 +41,8 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
   bool _isPasswordMissing = false;
   bool _isOrgConfigMissing = false;
   bool _isConnecting = false;
+  bool _isLoadingInbox = false;
+  bool _isLoadingSent = false;
   final TextEditingController _promptPasswordController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = "";
@@ -587,6 +589,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
       setState(() {
         _inboxPage = 0;
         _hasMoreInbox = true;
+        _isLoadingInbox = true;
       });
       if (_scrollController.hasClients) {
         _scrollController.jumpTo(0.0);
@@ -634,6 +637,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
       if (mounted) {
         setState(() {
           _isInboxLoadingMore = false;
+          _isLoadingInbox = false;
         });
       }
     }
@@ -708,6 +712,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
       setState(() {
         _sentPage = 0;
         _hasMoreSent = true;
+        _isLoadingSent = true;
       });
       if (_scrollController.hasClients) {
         _scrollController.jumpTo(0.0);
@@ -755,6 +760,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
       if (mounted) {
         setState(() {
           _isSentLoadingMore = false;
+          _isLoadingSent = false;
         });
       }
     }
@@ -2245,6 +2251,8 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
             return sender.contains(query) || subject.contains(query) || snippet.contains(query);
           }).toList();
 
+    final bool isLoading = _selectedFolder == "Inbox" ? _isLoadingInbox : (_selectedFolder == "Sent" ? _isLoadingSent : false);
+
     return Column(
       children: [
         Container(padding: const EdgeInsets.all(24), alignment: Alignment.centerLeft, child: Text(_selectedFolder, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold))),
@@ -2252,65 +2260,67 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
         Expanded(
           child: _isPasswordMissing
               ? _buildPasswordPrompt()
-              : (emails.isEmpty
-                  ? const Center(child: Text("No messages"))
-                  : ListView.separated(
-                      controller: _scrollController,
-                      itemCount: emails.length + ((_selectedFolder == "Inbox" ? _isInboxLoadingMore : _isSentLoadingMore) ? 1 : 0),
-                      separatorBuilder: (c, i) => const Divider(height: 1, indent: 80),
-                      itemBuilder: (context, index) {
-                        if (index == emails.length) {
-                          return const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 20),
-                            child: Center(
-                              child: SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(strokeWidth: 2.5),
-                              ),
-                            ),
-                          );
-                        }
-
-                        final email = emails[index];
-                        final isSelected = allEmails.indexOf(email) == _selectedEmailIndex && !_isComposing;
-                        final String sender = email['sender'] ?? 'Unknown';
-                        final bool isRead = email['isRead'] == true;
-
-                        return InkWell(
-                          onTap: () {
-                            final originalIndex = allEmails.indexOf(email);
-                            final bool wasUnread = email['isRead'] != true;
-                            setState(() {
-                              _selectedEmailIndex = originalIndex;
-                              _isComposing = false;
-                              email['isRead'] = true;
-                            });
-                            _fetchEmailDetails(email, originalIndex, wasUnread: wasUnread);
-                          },
-                          child: Container(
-                            color: isSelected ? const Color(0xFFEFF6FF) : Colors.transparent,
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                            child: Row(
-                              children: [
-                                CircleAvatar(child: Text(sender.isNotEmpty ? sender.substring(0, 1).toUpperCase() : "U")),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(sender, style: TextStyle(fontWeight: isRead ? FontWeight.normal : FontWeight.bold, fontSize: 13)),
-                                      Text(email['subject'] ?? '', style: TextStyle(fontWeight: isRead ? FontWeight.normal : FontWeight.bold, fontSize: 14), overflow: TextOverflow.ellipsis),
-                                      Text(email['snippet'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                                    ],
+              : (isLoading
+                  ? const SkeletonMessageList()
+                  : (emails.isEmpty
+                      ? const Center(child: Text("No messages"))
+                      : ListView.separated(
+                          controller: _scrollController,
+                          itemCount: emails.length + ((_selectedFolder == "Inbox" ? _isInboxLoadingMore : _isSentLoadingMore) ? 1 : 0),
+                          separatorBuilder: (c, i) => const Divider(height: 1, indent: 80),
+                          itemBuilder: (context, index) {
+                            if (index == emails.length) {
+                              return const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 20),
+                                child: Center(
+                                  child: SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(strokeWidth: 2.5),
                                   ),
-                                )
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    )),
+                                ),
+                              );
+                            }
+
+                            final email = emails[index];
+                            final isSelected = allEmails.indexOf(email) == _selectedEmailIndex && !_isComposing;
+                            final String sender = email['sender'] ?? 'Unknown';
+                            final bool isRead = email['isRead'] == true;
+
+                            return InkWell(
+                              onTap: () {
+                                final originalIndex = allEmails.indexOf(email);
+                                final bool wasUnread = email['isRead'] != true;
+                                setState(() {
+                                  _selectedEmailIndex = originalIndex;
+                                  _isComposing = false;
+                                  email['isRead'] = true;
+                                });
+                                _fetchEmailDetails(email, originalIndex, wasUnread: wasUnread);
+                              },
+                              child: Container(
+                                color: isSelected ? const Color(0xFFEFF6FF) : Colors.transparent,
+                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                                child: Row(
+                                  children: [
+                                    CircleAvatar(child: Text(sender.isNotEmpty ? sender.substring(0, 1).toUpperCase() : "U")),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(sender, style: TextStyle(fontWeight: isRead ? FontWeight.normal : FontWeight.bold, fontSize: 13)),
+                                          Text(email['subject'] ?? '', style: TextStyle(fontWeight: isRead ? FontWeight.normal : FontWeight.bold, fontSize: 14), overflow: TextOverflow.ellipsis),
+                                          Text(email['snippet'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                                        ],
+                                      ),
+                                    )
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ))),
         ),
       ],
     );
@@ -3991,6 +4001,112 @@ class _RecipientChipsInputState extends State<RecipientChipsInput> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class SkeletonMessageList extends StatefulWidget {
+  const SkeletonMessageList({super.key});
+
+  @override
+  State<SkeletonMessageList> createState() => _SkeletonMessageListState();
+}
+
+class _SkeletonMessageListState extends State<SkeletonMessageList> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _opacityAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
+    _opacityAnimation = Tween<double>(begin: 0.35, end: 0.8).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _opacityAnimation,
+      builder: (context, child) {
+        return Opacity(
+          opacity: _opacityAnimation.value,
+          child: child,
+        );
+      },
+      child: Column(
+        children: List.generate(6, (index) => _buildSkeletonItem()),
+      ),
+    );
+  }
+
+  Widget _buildSkeletonItem() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: Color(0xFFF1F5F9), width: 0.5)),
+      ),
+      child: Row(
+        children: [
+          // Circle Avatar Placeholder
+          Container(
+            width: 40,
+            height: 40,
+            decoration: const BoxDecoration(
+              color: Color(0xFFE2E8F0),
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 16),
+          // Texts Placeholder
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Sender Name
+                Container(
+                  width: 100,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // Subject
+                Container(
+                  width: 180,
+                  height: 14,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                // Snippet
+                Container(
+                  width: double.infinity,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
