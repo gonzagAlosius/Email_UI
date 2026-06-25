@@ -3789,6 +3789,9 @@ class _RecipientChipsInputState extends State<RecipientChipsInput> {
   }
 
   void _onFocusChanged() {
+    if (!_focusNode.hasFocus) {
+      _addEmails(_textController.text);
+    }
     setState(() {});
   }
 
@@ -3802,7 +3805,12 @@ class _RecipientChipsInputState extends State<RecipientChipsInput> {
 
   void _onControllerChanged() {
     final currentText = widget.controller.text.trim();
-    final serializedChips = _chips.join(', ');
+    final List<String> allItems = List.from(_chips);
+    final pendingText = _textController.text.trim();
+    if (pendingText.isNotEmpty) {
+      allItems.add(pendingText);
+    }
+    final serializedChips = allItems.join(', ');
     if (currentText != serializedChips) {
       setState(() {
         if (currentText.isEmpty) {
@@ -3811,13 +3819,19 @@ class _RecipientChipsInputState extends State<RecipientChipsInput> {
         } else {
           _chips.clear();
           _chips.addAll(_parseEmails(currentText));
+          _textController.clear();
         }
       });
     }
   }
 
   void _updateController() {
-    final serialized = _chips.join(', ');
+    final pendingText = _textController.text.trim();
+    final List<String> allItems = List.from(_chips);
+    if (pendingText.isNotEmpty) {
+      allItems.add(pendingText);
+    }
+    final serialized = allItems.join(', ');
     if (widget.controller.text != serialized) {
       widget.controller.removeListener(_onControllerChanged);
       widget.controller.text = serialized;
@@ -3845,6 +3859,8 @@ class _RecipientChipsInputState extends State<RecipientChipsInput> {
   void _onInputChanged(String val) {
     if (val.contains(',') || val.contains(';') || val.endsWith(' ')) {
       _addEmails(val);
+    } else {
+      _updateController();
     }
   }
 
