@@ -4061,8 +4061,10 @@ class _SkeletonMessageListState extends State<SkeletonMessageList> with SingleTi
           child: child,
         );
       },
-      child: Column(
-        children: List.generate(6, (index) => _buildSkeletonItem()),
+      child: SingleChildScrollView(
+        child: Column(
+          children: List.generate(6, (index) => _buildSkeletonItem()),
+        ),
       ),
     );
   }
