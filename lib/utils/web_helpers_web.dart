@@ -11,6 +11,14 @@ void replaceUrlState(String path) {
   }
 }
 
+void redirectTo(String url) {
+  try {
+    html.window.location.assign(url);
+  } catch (e) {
+    // Ignore or log
+  }
+}
+
 void downloadFileWeb(String fileName, String contentType, String base64Data) {
   try {
     js.context.callMethod('eval', ["""

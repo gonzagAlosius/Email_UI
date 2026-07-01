@@ -10,6 +10,8 @@ import 'package:aad_oauth/aad_oauth.dart';
 import 'package:aad_oauth/model/config.dart';
 import 'main.dart';
 import 'services/notification_service.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'utils/web_helpers.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -137,6 +139,15 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
   Future<void> _loginWithGoogle() async {
     setState(() => _isLoading = true);
+    if (kIsWeb) {
+      final redirectUrl = Uri.base.toString().split('?').first.split('#').first;
+      String baseUrl = AppConfig.instance.baseUrl;
+      if (baseUrl.endsWith('/api')) baseUrl = baseUrl.substring(0, baseUrl.length - 4);
+      final backendAuthUrl = '$baseUrl/oauth/google/login?redirect=$redirectUrl';
+      redirectTo(backendAuthUrl);
+      return;
+    }
+    
     try {
       final GoogleSignIn googleSignIn = GoogleSignIn(
         clientId: '497665028004-3d7sq2e5096d1bsacfgmpdje7je8npee.apps.googleusercontent.com',

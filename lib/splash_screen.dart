@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:aad_oauth/aad_oauth.dart';
 import 'package:aad_oauth/model/config.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'config/app_config.dart';
 
 import 'utils/web_helpers.dart';
@@ -33,6 +35,8 @@ class _SplashScreenState extends State<SplashScreen> {
     if (kIsWeb) {
       final uri = Uri.base;
       String? urlToken = uri.queryParameters['token'];
+      String? urlProvider = uri.queryParameters['provider'];
+      String? urlEmail = uri.queryParameters['email'];
 
       // Check URL fragment for hash routing compatibility
       if (urlToken == null && uri.fragment.contains('token=')) {
@@ -42,12 +46,37 @@ class _SplashScreenState extends State<SplashScreen> {
               : uri.fragment;
           final fragUri = Uri.parse('?${frag.split('?').last}');
           urlToken = fragUri.queryParameters['token'];
+          urlProvider = fragUri.queryParameters['provider'];
+          urlEmail = fragUri.queryParameters['email'];
         } catch (e) {
           debugPrint('⚠️ Error parsing token from URL fragment: $e');
         }
       }
 
-      // 1️⃣ Mother Token exists in URL -> Process Exchange
+      // 1️⃣ Backend OAuth Token exists (Google Login complete) -> Save and open inbox
+      if (urlToken != null && urlToken.isNotEmpty && urlProvider == 'google' && urlEmail != null) {
+        debugPrint('✅ Google login callback received. Navigating to Email Home...');
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('email', urlEmail);
+        await prefs.setString('password', urlToken);
+        await prefs.setBool('is_google_login', true);
+        await prefs.remove('is_microsoft_login');
+
+        try {
+          replaceUrlState('/#/');
+        } catch (e) {
+          debugPrint('⚠️ Could not replace URL history: $e');
+        }
+
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const EmailHomeScreen()),
+        );
+        return;
+      }
+
+      // 2️⃣ Mother Token exists in URL -> Process Exchange
       if (urlToken != null && urlToken.isNotEmpty) {
         debugPrint('🔑 Found mother token in URL. Attempting exchange...');
         final success = await AuthService.loginWithMotherToken(urlToken);
@@ -87,10 +116,38 @@ class _SplashScreenState extends State<SplashScreen> {
       return;
     }
 
-    // 3️⃣ Try Microsoft silent token refresh (no OAuth popup)
+    // 4️⃣ Try Microsoft silent token refresh (no OAuth popup)
     final prefs = await SharedPreferences.getInstance();
     final isMicrosoftLogin = prefs.getBool('is_microsoft_login') ?? false;
+    final isGoogleLogin = prefs.getBool('is_google_login') ?? false;
     final savedEmail = prefs.getString('email') ?? '';
+
+    // Try Google silent token refresh via backend
+    if (isGoogleLogin && savedEmail.isNotEmpty) {
+      debugPrint('🔄 Google login detected. Attempting silent token refresh via backend...');
+      try {
+        final response = await http.post(
+          Uri.parse('${AppConfig.instance.baseUrl}/auth/google/refresh'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'email': savedEmail}),
+        );
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          if (data['access_token'] != null) {
+            await prefs.setString('password', data['access_token']);
+            debugPrint('✅ Silent Google token refresh succeeded.');
+            if (!mounted) return;
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const EmailHomeScreen()),
+            );
+            return;
+          }
+        }
+      } catch (e) {
+        debugPrint('⚠️ Silent Google refresh failed: $e');
+      }
+    }
 
     if (isMicrosoftLogin && savedEmail.isNotEmpty) {
       debugPrint('🔄 Microsoft login detected. Attempting silent token refresh...');
@@ -120,9 +177,9 @@ class _SplashScreenState extends State<SplashScreen> {
       }
     }
 
-    // 4️⃣ Check regular email/password session
+    // 6️⃣ Check regular email/password session
     final savedPass = prefs.getString('password') ?? '';
-    if (savedEmail.isNotEmpty && savedPass.isNotEmpty && !isMicrosoftLogin) {
+    if (savedEmail.isNotEmpty && savedPass.isNotEmpty && !isMicrosoftLogin && !isGoogleLogin) {
       debugPrint('✅ Regular session found. Navigating to Email Home...');
       if (!mounted) return;
       Navigator.pushReplacement(

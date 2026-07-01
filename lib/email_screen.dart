@@ -828,6 +828,15 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
 
     if (isGoogle) {
       debugPrint("🔄 Auto-triggering Google Sign-In for $email...");
+      if (kIsWeb) {
+        final redirectUrl = Uri.base.toString().split('?').first.split('#').first;
+        String baseUrl = AppConfig.instance.baseUrl;
+        if (baseUrl.endsWith('/api')) baseUrl = baseUrl.substring(0, baseUrl.length - 4);
+        final backendAuthUrl = '$baseUrl/oauth/google/login?redirect=$redirectUrl';
+        redirectTo(backendAuthUrl);
+        return;
+      }
+      // Fallback for mobile if needed, though they want it all through backend
       try {
         final GoogleSignIn googleSignIn = GoogleSignIn(
           clientId: '497665028004-3d7sq2e5096d1bsacfgmpdje7je8npee.apps.googleusercontent.com',
