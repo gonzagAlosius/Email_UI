@@ -5,8 +5,9 @@ import 'package:http/http.dart' as http;
  
 class AppConfig {
   final String baseUrl;
+  final String calendarUrl;
   final int productCode;
-  AppConfig._({required this.baseUrl, required this.productCode,});
+  AppConfig._({required this.baseUrl, required this.calendarUrl, required this.productCode,});
  
   static AppConfig? _instance;
  
@@ -25,6 +26,7 @@ class AppConfig {
  
     _instance = AppConfig._(
       baseUrl: _determineBaseUrl(data['baseUrl']),
+      calendarUrl: _determineBaseUrl(data['calendarUrl'] ?? data['baseUrl'].replaceAll('8081', '8080')),
       productCode: data['productCode'],
     );
  
