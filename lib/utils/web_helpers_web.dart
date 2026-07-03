@@ -33,3 +33,18 @@ void downloadFileWeb(String fileName, String contentType, String base64Data) {
     // Ignore or log
   }
 }
+
+void openInNewTab(String url) {
+  try {
+    html.AnchorElement anchor = html.AnchorElement(href: url)
+      ..target = '_blank'
+      ..rel = 'noopener noreferrer';
+    anchor.click();
+  } catch (e) {
+    try {
+      html.window.open(url, '_blank');
+    } catch (e2) {
+      // Ignore or log
+    }
+  }
+}

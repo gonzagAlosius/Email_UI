@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -69,6 +70,50 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
     }
   }
 
+  Future<void> _deleteEvent() async {
+    final id = widget.event['id'];
+    if (id == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cannot delete: Event ID is null')),
+        );
+      }
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      final headers = await _getDialogHeaders();
+      final response = await http.delete(
+        Uri.parse('${AppConfig.instance.calendarUrl}/events/$id'),
+        headers: headers,
+      );
+      if (response.statusCode == 200) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Event Deleted Successfully!')),
+          );
+          widget.onEventDeleted();
+          Navigator.of(context).pop();
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to delete event: ${response.statusCode}')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error deleting event: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   String _formatTimeFull(String? timeStr) {
     if (timeStr == null || timeStr.isEmpty) return 'Unknown';
     final dt = DateTime.tryParse(timeStr);
@@ -81,6 +126,133 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
     final dt = DateTime.tryParse(timeStr);
     if (dt == null) return '';
     return DateFormat('hh:mm a').format(dt);
+  }
+
+  String get _description {
+    String desc = _graphData != null && _graphData!['bodyPreview'] != null 
+        ? _graphData!['bodyPreview'] 
+        : widget.event['description'] ?? '';
+    if (desc.startsWith('Agenda:')) {
+      desc = desc.substring(7).trim();
+    }
+    return desc;
+  }
+
+  void _copyTeamsLink() async {
+    String? teamsLink;
+    if (_graphData != null) {
+      if (_graphData!['onlineMeetingUrl'] != null) {
+        teamsLink = _graphData!['onlineMeetingUrl'].toString();
+      } else if (_graphData!['onlineMeeting'] != null && _graphData!['onlineMeeting']['joinUrl'] != null) {
+        teamsLink = _graphData!['onlineMeeting']['joinUrl'].toString();
+      }
+    }
+    if (teamsLink == null || teamsLink.isEmpty) {
+      teamsLink = _extractTeamsLink(_description);
+    }
+    if (teamsLink == null || teamsLink.isEmpty) {
+      final localDesc = widget.event['description'] ?? '';
+      teamsLink = _extractTeamsLink(localDesc);
+    }
+    if (teamsLink == null || teamsLink.isEmpty) {
+      final localAgenda = widget.event['agenda'] ?? '';
+      teamsLink = _extractTeamsLink(localAgenda);
+    }
+    if (teamsLink == null || teamsLink.isEmpty) {
+      final localLocation = widget.event['location'] ?? '';
+      if (localLocation.toString().contains('teams.microsoft.com')) {
+        teamsLink = _extractTeamsLink(localLocation.toString());
+      }
+    }
+
+    if (teamsLink != null && teamsLink.isNotEmpty) {
+      teamsLink = teamsLink.trim();
+      final cleanRegExp = RegExp(r'(https://[^\s<>"]*teams\.microsoft\.com[^\s<>"]*)');
+      final cleanMatch = cleanRegExp.firstMatch(teamsLink);
+      if (cleanMatch != null) {
+        teamsLink = cleanMatch.group(0);
+      }
+
+      await Clipboard.setData(ClipboardData(text: teamsLink!));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Teams link copied to clipboard:\n$teamsLink')),
+              ],
+            ),
+            backgroundColor: Colors.blue.shade600,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No Teams meeting link found to copy.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  String? _extractTeamsLink(String text) {
+    if (text.isEmpty) return null;
+    final regExp = RegExp(r'(https://[^\s<>"]*teams\.microsoft\.com[^\s<>"]*)');
+    final match = regExp.firstMatch(text);
+    return match?.group(0);
+  }
+
+  void _joinTeamsMeeting() {
+    String? teamsLink;
+    if (_graphData != null) {
+      if (_graphData!['onlineMeetingUrl'] != null) {
+        teamsLink = _graphData!['onlineMeetingUrl'].toString();
+      } else if (_graphData!['onlineMeeting'] != null && _graphData!['onlineMeeting']['joinUrl'] != null) {
+        teamsLink = _graphData!['onlineMeeting']['joinUrl'].toString();
+      }
+    }
+    if (teamsLink == null || teamsLink.isEmpty) {
+      teamsLink = _extractTeamsLink(_description);
+    }
+    if (teamsLink == null || teamsLink.isEmpty) {
+      final localDesc = widget.event['description'] ?? '';
+      teamsLink = _extractTeamsLink(localDesc);
+    }
+    if (teamsLink == null || teamsLink.isEmpty) {
+      final localAgenda = widget.event['agenda'] ?? '';
+      teamsLink = _extractTeamsLink(localAgenda);
+    }
+    if (teamsLink == null || teamsLink.isEmpty) {
+      final localLocation = widget.event['location'] ?? '';
+      if (localLocation.toString().contains('teams.microsoft.com')) {
+        teamsLink = _extractTeamsLink(localLocation.toString());
+      }
+    }
+
+    if (teamsLink != null && teamsLink.isNotEmpty) {
+      teamsLink = teamsLink.trim();
+      final cleanRegExp = RegExp(r'(https://[^\s<>"]*teams\.microsoft\.com[^\s<>"]*)');
+      final cleanMatch = cleanRegExp.firstMatch(teamsLink);
+      if (cleanMatch != null) {
+        teamsLink = cleanMatch.group(0);
+      }
+      openInNewTab(teamsLink!);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No Teams meeting link found to open.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
   }
 
   void _downloadIcs() {
@@ -151,13 +323,7 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
         
     final attendeesCount = graphAttendees.isNotEmpty ? graphAttendees.length : (widget.event['attendees'] as List<dynamic>? ?? []).length;
     final isTeamsMeeting = _graphData != null ? (_graphData!['isOnlineMeeting'] ?? false) : (widget.event['teamsMeeting'] ?? false);
-    String description = _graphData != null && _graphData!['bodyPreview'] != null 
-        ? _graphData!['bodyPreview'] 
-        : widget.event['description'] ?? '';
-        
-    if (description.startsWith('Agenda:')) {
-      description = description.substring(7).trim();
-    }
+    final description = _description;
     
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -264,7 +430,7 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
                                   if (isTeamsMeeting) const SizedBox(height: 8),
                                   if (isTeamsMeeting)
                                     InkWell(
-                                      onTap: () {}, 
+                                      onTap: _joinTeamsMeeting, 
                                       borderRadius: BorderRadius.circular(8),
                                       child: Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -295,14 +461,23 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
                                 children: [
                                   const Text('Agenda:', style: TextStyle(fontSize: 14, color: Color(0xFF4B5563))),
                                   const SizedBox(height: 8),
-                                  Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                    decoration: BoxDecoration(
-                                      border: Border.all(color: const Color(0xFFE5E7EB)),
-                                      borderRadius: BorderRadius.circular(8),
+                                  InkWell(
+                                    onTap: _copyTeamsLink,
+                                    mouseCursor: SystemMouseCursors.click,
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Tooltip(
+                                      message: 'Click to copy Teams meeting link',
+                                      child: Container(
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                        decoration: BoxDecoration(
+                                          border: Border.all(color: const Color(0xFFE5E7EB)),
+                                          borderRadius: BorderRadius.circular(8),
+                                          color: const Color(0xFFF9FAFB),
+                                        ),
+                                        child: Text(description.isEmpty ? 'Agenda:' : description, style: const TextStyle(fontSize: 14, color: Color(0xFF374151))),
+                                      ),
                                     ),
-                                    child: Text(description.isEmpty ? 'Agenda:' : description, style: const TextStyle(fontSize: 14, color: Color(0xFF374151))),
                                   ),
                                 ],
                               ),
@@ -419,19 +594,7 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
         Row(
           children: [
             TextButton.icon(
-              onPressed: () {},
-              icon: const Icon(Icons.open_in_new, size: 18, color: Color(0xFF6B7280)),
-              label: const Text('Open in new', style: TextStyle(color: Color(0xFF6B7280), fontWeight: FontWeight.w500)),
-              style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
-            ),
-            TextButton.icon(
-              onPressed: () {},
-              icon: const Icon(Icons.edit_outlined, size: 18, color: Color(0xFF6B7280)),
-              label: const Text('Edit', style: TextStyle(color: Color(0xFF6B7280), fontWeight: FontWeight.w500)),
-              style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
-            ),
-            TextButton.icon(
-              onPressed: () {},
+              onPressed: _deleteEvent,
               icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
               label: const Text('Delete', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w500)),
               style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)),

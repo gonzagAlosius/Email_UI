@@ -927,210 +927,387 @@ class _CalendarViewState extends State<CalendarView> {
     final description = event['description'] ?? '';
     final organizer = event['organizerEmail'] ?? event['organizer'] ?? 'Unknown'; 
 
-    String formatTime(String? timeStr) {
-      if (timeStr == null || timeStr.isEmpty) return 'Unknown';
-      final dt = DateTime.tryParse(timeStr);
-      if (dt == null) return timeStr;
-      return DateFormat('EEE dd-MM-yyyy HH:mm').format(dt); 
+    String formatMockupTime(String? startStr, String? endStr) {
+      if (startStr == null || startStr.isEmpty) return 'Unknown';
+      final start = DateTime.tryParse(startStr);
+      final end = DateTime.tryParse(endStr ?? '');
+      if (start == null) return startStr;
+      
+      final datePart = DateFormat('EEE dd MMM yyyy').format(start);
+      final startVal = DateFormat('hh:mm').format(start);
+      final endVal = end != null ? DateFormat('hh:mm a').format(end) : '';
+      
+      if (endVal.isNotEmpty) {
+        return '$datePart  •  $startVal - $endVal';
+      } else {
+        return '$datePart  •  $startVal';
+      }
     }
-    
-    final formattedStart = formatTime(startTimeStr);
-    final formattedEnd = formatTime(endTimeStr).split(' ').last; 
+
+    String calculateDuration(String? startStr, String? endStr) {
+      if (startStr == null || endStr == null) return '';
+      final start = DateTime.tryParse(startStr);
+      final end = DateTime.tryParse(endStr);
+      if (start == null || end == null) return '';
+      final diff = end.difference(start);
+      if (diff.inMinutes < 60) {
+        return '${diff.inMinutes} minutes';
+      } else {
+        final hours = diff.inHours;
+        final mins = diff.inMinutes % 60;
+        if (mins == 0) {
+          return "$hours hour${hours > 1 ? 's' : ''}";
+        } else {
+          return "$hours hr $mins min";
+        }
+      }
+    }
+
+    final formattedTime = formatMockupTime(startTimeStr, endTimeStr);
+    final durationStr = calculateDuration(startTimeStr, endTimeStr);
+
+    String responseStatus = 'accepted';
 
     showDialog(
       context: context,
       builder: (context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          elevation: 4,
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.transparent,
-          child: Container(
-            width: 420,
-            padding: const EdgeInsets.all(0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Top Header (Calendar + Expand)
-                Padding(
-                  padding: const EdgeInsets.only(left: 24, right: 12, top: 12, bottom: 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Calendar',
-                        style: TextStyle(color: Color(0xFF4B5563), fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                      Row(
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.delete_outline, color: Color(0xFF6B7280), size: 20),
-                            tooltip: 'Delete Event',
-                            onPressed: () async {
-                              Navigator.pop(context);
-                              final id = event['id'];
-                              if (id != null) {
-                                final headers = await _getCalendarHeaders();
-                                try {
-                                  final response = await http.delete(
-                                    Uri.parse('${AppConfig.instance.calendarUrl}/events/$id'),
-                                    headers: headers,
-                                  );
-                                  if (response.statusCode == 200) {
-                                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Event Deleted Successfully!')));
-                                    _fetchEvents();
-                                  } else {
-                                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to delete event: ${response.statusCode}')));
-                                  }
-                                } catch (e) {
-                                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-                                }
-                              }
-                            },
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.open_in_new, color: Color(0xFF6B7280), size: 20),
-                            tooltip: 'Expand (Edit)',
-                            onPressed: () async {
-                              Navigator.pop(context);
-                              await showDialog(
-                                context: context,
-                                builder: (context) => ElaboratedEventDialog(
-                                  event: event,
-                                  onEventDeleted: () => _fetchEvents(),
-                                ),
-                              );
-                            },
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.close, color: Color(0xFF6B7280), size: 20),
-                            onPressed: () => Navigator.pop(context),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+        return StatefulBuilder(
+          builder: (context, setState) {
+            Color pillBgColor;
+            Color pillTextColor;
+            String statusText;
+            String statusSubtext;
+
+            if (responseStatus == 'accepted') {
+              pillBgColor = const Color(0xFFECFDF5);
+              pillTextColor = const Color(0xFF10B981);
+              statusText = 'Accepted';
+              statusSubtext = 'You accepted this invitation.';
+            } else if (responseStatus == 'tentative') {
+              pillBgColor = const Color(0xFFEEF2FF);
+              pillTextColor = const Color(0xFF4F46E5);
+              statusText = 'Tentative';
+              statusSubtext = 'You accepted this invitation as tentative.';
+            } else {
+              pillBgColor = const Color(0xFFFEF2F2);
+              pillTextColor = const Color(0xFFEF4444);
+              statusText = 'Declined';
+              statusSubtext = 'You declined this invitation.';
+            }
+
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 8,
+              backgroundColor: Colors.white,
+              surfaceTintColor: Colors.transparent,
+              child: Container(
+                width: 500,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                
-                // Title
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Text(
-                    title,
-                    style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w600, color: Color(0xFF4B5563)),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                const Divider(height: 1, color: Color(0xFFE5E7EB)),
-                
-                // Time
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.access_time, color: Color(0xFF6B7280), size: 24),
-                      const SizedBox(width: 20),
-                      Text(
-                        '$formattedStart - $formattedEnd',
-                        style: const TextStyle(fontSize: 16, color: Color(0xFF4B5563)),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1, color: Color(0xFFE5E7EB)),
-                
-                // Organizer
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        backgroundColor: const Color(0xFF93C5FD),
-                        radius: 18,
-                        child: Text(
-                          organizer.isNotEmpty ? organizer[0].toUpperCase() : 'U',
-                          style: const TextStyle(color: Color(0xFF1E3A8A), fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      const SizedBox(width: 20),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${organizer.split('@').first} invited you.',
-                            style: const TextStyle(fontSize: 16, color: Color(0xFF4B5563)),
-                          ),
-                          const SizedBox(height: 4),
-                          const Text(
-                            'You accepted.',
-                            style: TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1, color: Color(0xFFE5E7EB)),
-                
-                // Agenda
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                  child: Row(
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.notes, color: Color(0xFF6B7280), size: 24),
-                      const SizedBox(width: 20),
-                      Expanded(
+                      // Header Row: Calendar, Delete, Expand, Close
+                      Padding(
+                        padding: const EdgeInsets.only(left: 24, right: 16, top: 16, bottom: 8),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Calendar',
+                              style: TextStyle(color: Color(0xFF1F2937), fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                            Row(
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, color: Color(0xFF6B7280), size: 20),
+                                  tooltip: 'Delete Event',
+                                  onPressed: () async {
+                                    Navigator.pop(context);
+                                    final id = event['id'];
+                                    if (id != null) {
+                                      final headers = await _getCalendarHeaders();
+                                      try {
+                                        final response = await http.delete(
+                                          Uri.parse('${AppConfig.instance.calendarUrl}/events/$id'),
+                                          headers: headers,
+                                        );
+                                        if (response.statusCode == 200) {
+                                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Event Deleted Successfully!')));
+                                          _fetchEvents();
+                                        } else {
+                                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to delete event: ${response.statusCode}')));
+                                        }
+                                      } catch (e) {
+                                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+                                      }
+                                    }
+                                  },
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.open_in_new, color: Color(0xFF6B7280), size: 20),
+                                  tooltip: 'Expand (Edit)',
+                                  onPressed: () async {
+                                    Navigator.pop(context);
+                                    await showDialog(
+                                      context: context,
+                                      builder: (context) => ElaboratedEventDialog(
+                                        event: event,
+                                        onEventDeleted: () => _fetchEvents(),
+                                      ),
+                                    );
+                                  },
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.close, color: Color(0xFF6B7280), size: 20),
+                                  onPressed: () => Navigator.pop(context),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      
+                      const Divider(height: 1, color: Color(0xFFE5E7EB)),
+                      
+                      // Event Title, Date and Duration
+                      Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEFF6FF),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(Icons.calendar_today, color: Colors.blue, size: 24),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    title,
+                                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      Container(
+                                        width: 6,
+                                        height: 6,
+                                        decoration: const BoxDecoration(
+                                          color: Colors.blue,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          formattedTime,
+                                          style: const TextStyle(fontSize: 13, color: Color(0xFF4B5563), fontWeight: FontWeight.w500),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  if (durationStr.isNotEmpty) ...[
+                                    const SizedBox(height: 4),
+                                    Padding(
+                                      padding: const EdgeInsets.only(left: 14),
+                                      child: Text(
+                                        durationStr,
+                                        style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      
+                      const Divider(height: 1, color: Color(0xFFE5E7EB)),
+                      
+                      // Organizer Row
+                      Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            CircleAvatar(
+                              backgroundColor: const Color(0xFF2563EB),
+                              radius: 18,
+                              child: Text(
+                                organizer.isNotEmpty ? organizer[0].toUpperCase() : 'U',
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          '${organizer.split('@').first} invited you.',
+                                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: pillBgColor,
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: Text(
+                                          statusText,
+                                          style: TextStyle(color: pillTextColor, fontSize: 11, fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    statusSubtext,
+                                    style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      
+                      const Divider(height: 1, color: Color(0xFFE5E7EB)),
+                      
+                      // Agenda Row
+                      Padding(
+                        padding: const EdgeInsets.all(24),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              'Agenda:',
-                              style: TextStyle(fontSize: 16, color: Color(0xFF4B5563)),
+                            Row(
+                              children: const [
+                                Icon(Icons.format_list_bulleted, color: Color(0xFF6B7280), size: 20),
+                                SizedBox(width: 12),
+                                Text(
+                                  'Agenda',
+                                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
+                                ),
+                              ],
                             ),
-                            if (description.isNotEmpty && description != 'No description provided.') ...[
-                              const SizedBox(height: 6),
-                              Text(
-                                description,
-                                style: const TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
+                            const SizedBox(height: 12),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: const Color(0xFFE5E7EB)),
+                                borderRadius: BorderRadius.circular(8),
+                                color: const Color(0xFFF9FAFB),
                               ),
-                            ]
+                              child: Text(
+                                description.isEmpty || description == 'No description provided.'
+                                    ? 'No description provided.'
+                                    : description,
+                                style: const TextStyle(fontSize: 13, color: Color(0xFF4B5563)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      
+                      const Divider(height: 1, color: Color(0xFFE5E7EB)),
+                      
+                      // Footer (RSVP buttons)
+                      Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () {
+                                  setState(() {
+                                    responseStatus = 'accepted';
+                                  });
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Response updated to Accepted!')),
+                                  );
+                                },
+                                icon: const Icon(Icons.check, size: 16),
+                                label: const Text('Accepted', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: responseStatus == 'accepted' ? const Color(0xFF10B981) : const Color(0xFF6B7280),
+                                  backgroundColor: responseStatus == 'accepted' ? const Color(0xFFECFDF5) : Colors.white,
+                                  side: BorderSide(color: responseStatus == 'accepted' ? const Color(0xFF10B981) : const Color(0xFFD1D5DB)),
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () {
+                                  setState(() {
+                                    responseStatus = 'tentative';
+                                  });
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Response updated to Tentative!')),
+                                  );
+                                },
+                                icon: const Icon(Icons.help_outline, size: 16),
+                                label: const Text('Tentative', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: responseStatus == 'tentative' ? const Color(0xFF4F46E5) : const Color(0xFF6B7280),
+                                  backgroundColor: responseStatus == 'tentative' ? const Color(0xFFEEF2FF) : Colors.white,
+                                  side: BorderSide(color: responseStatus == 'tentative' ? const Color(0xFF4F46E5) : const Color(0xFFD1D5DB)),
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () {
+                                  setState(() {
+                                    responseStatus = 'declined';
+                                  });
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Response updated to Declined!')),
+                                  );
+                                },
+                                icon: const Icon(Icons.close, size: 16),
+                                label: const Text('Decline', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: responseStatus == 'declined' ? const Color(0xFFEF4444) : const Color(0xFF6B7280),
+                                  backgroundColor: responseStatus == 'declined' ? const Color(0xFFFEF2F2) : Colors.white,
+                                  side: BorderSide(color: responseStatus == 'declined' ? const Color(0xFFEF4444) : const Color(0xFFD1D5DB)),
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ),
                     ],
                   ),
                 ),
-                const Divider(height: 1, color: Color(0xFFE5E7EB)),
-                
-                // Footer (Accepted status)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.event_available, color: Color(0xFF6B7280), size: 20),
-                      const SizedBox(width: 20),
-                      const Icon(Icons.check, color: Color(0xFF10B981), size: 20), 
-                      const SizedBox(width: 8),
-                      const Text(
-                        'Accepted',
-                        style: TextStyle(fontSize: 16, color: Color(0xFF4B5563)),
-                      ),
-                      const SizedBox(width: 16),
-                      InkWell(
-                        onTap: () {},
-                        child: const Text(
-                          'Change',
-                          style: TextStyle(fontSize: 16, color: Color(0xFF4F46E5)), 
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );

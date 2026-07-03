@@ -47,7 +47,7 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
   
   // Booleans (Switches/Checkboxes)
   bool _isAllDay = false;
-  bool _isTeamsMeeting = false;
+  bool _isTeamsMeeting = true;
   bool _responseRequested = true;
   bool _allowForwarding = true;
 
@@ -325,22 +325,55 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
     final bool isEditing = widget.initialEvent != null && widget.initialEvent!['id'] != null;
     final bool isWide = MediaQuery.of(context).size.width > 600;
 
-    return AlertDialog(
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 12,
       backgroundColor: Colors.white,
       surfaceTintColor: Colors.transparent,
-      title: Center(child: Text(isEditing ? 'Edit Event' : 'Create Event', style: const TextStyle(fontWeight: FontWeight.bold))),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      contentPadding: const EdgeInsets.all(24),
-      content: SizedBox(
-        width: isWide ? 600 : double.maxFinite,
-        child: Form(
-          key: _formKey,
-          child: ScrollConfiguration(
-            behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-            child: SingleChildScrollView(
-              child: Column(
+      child: Container(
+        width: 800,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(32),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEFF6FF),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.calendar_today, color: Colors.blue, size: 24),
+                        ),
+                        const SizedBox(width: 16),
+                        Text(
+                          isEditing ? 'Edit Event' : 'Create Event',
+                          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
+                        ),
+                      ],
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close, color: Color(0xFF4B5563), size: 24),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                const Divider(height: 1, color: Color(0xFFE5E7EB)),
+                const SizedBox(height: 24),
+                
                 _buildTextField('Title', _titleController, isRequired: true),
                 const SizedBox(height: 16),
                 
@@ -557,52 +590,58 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
                     ),
                   ],
                 ),
+                
+                const SizedBox(height: 32),
+                const Divider(height: 1, color: Color(0xFFE5E7EB)),
+                const SizedBox(height: 24),
+                
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    ElevatedButton(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.grey.shade100,
+                        foregroundColor: Colors.black87,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                      ),
+                      child: const Text('Save Draft', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          child: const Text('Cancel', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                        ),
+                        const SizedBox(width: 12),
+                        ElevatedButton(
+                          onPressed: _saveEvent,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                          ),
+                          child: Text(isEditing ? 'Save' : 'Create', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
-          ),
         ),
       ),
-      actionsAlignment: MainAxisAlignment.spaceBetween,
-      actionsPadding: const EdgeInsets.only(left: 24, right: 24, bottom: 24),
-      actions: [
-        ElevatedButton(
-          onPressed: () {
-            // Placeholder for save draft, currently just closes the dialog
-            Navigator.of(context).pop();
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.grey.shade200,
-            elevation: 0,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          ),
-          child: const Text('Save Draft', style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
-        ),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-              ),
-              child: const Text('Cancel', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
-            ),
-            const SizedBox(width: 8),
-            ElevatedButton(
-              onPressed: _saveEvent,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              ),
-              child: Text(isEditing ? 'Save' : 'Create', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            ),
-          ],
-        ),
-      ],
     );
   }
 
