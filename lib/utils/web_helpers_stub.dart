@@ -13,3 +13,11 @@ void downloadFileWeb(String fileName, String contentType, String base64Data) {
 void openInNewTab(String url) {
   // Stub implementation for non-web platforms
 }
+
+void printWindowWeb() {
+  // Stub implementation for non-web platforms
+}
+
+void printHtmlWeb(String title, String htmlBody) {
+  // Stub implementation for non-web platforms
+}

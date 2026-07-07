@@ -146,7 +146,12 @@ class _CalendarViewState extends State<CalendarView> {
                     style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.add_circle, color: Color(0xFF2563EB), size: 32),
+                    style: IconButton.styleFrom(
+                      backgroundColor: const Color(0xFF8B5CF6),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      padding: const EdgeInsets.all(8),
+                    ),
+                    icon: const Icon(Icons.add, color: Colors.white, size: 24),
                     onPressed: () => showDialog(
                       context: context,
                       builder: (_) => const EventCreationDialog(),
@@ -225,12 +230,12 @@ class _CalendarViewState extends State<CalendarView> {
                   ),
                   calendarStyle: CalendarStyle(
                     todayDecoration: BoxDecoration(
-                      color: const Color(0xFF2563EB).withOpacity(0.1),
+                      color: const Color(0xFF8B5CF6).withOpacity(0.1),
                       shape: BoxShape.circle,
                     ),
-                    todayTextStyle: const TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold),
+                    todayTextStyle: const TextStyle(color: Color(0xFF8B5CF6), fontWeight: FontWeight.bold),
                     selectedDecoration: const BoxDecoration(
-                      color: Color(0xFF2563EB),
+                      color: Color(0xFF8B5CF6),
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -244,7 +249,7 @@ class _CalendarViewState extends State<CalendarView> {
                             height: 6,
                             decoration: const BoxDecoration(
                               shape: BoxShape.circle,
-                              color: Color(0xFF2563EB),
+                              color: Color(0xFF8B5CF6),
                             ),
                           ),
                         );
@@ -286,7 +291,12 @@ class _CalendarViewState extends State<CalendarView> {
                         style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.add_circle, color: Color(0xFF2563EB), size: 32),
+                        style: IconButton.styleFrom(
+                          backgroundColor: const Color(0xFF8B5CF6),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          padding: const EdgeInsets.all(8),
+                        ),
+                        icon: const Icon(Icons.add, color: Colors.white, size: 24),
                         onPressed: () => showDialog(
                           context: context,
                           builder: (_) => const EventCreationDialog(),
@@ -298,15 +308,16 @@ class _CalendarViewState extends State<CalendarView> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0),
                   child: Card(
-                    elevation: 0,
+                    elevation: 12,
+                    shadowColor: Colors.black.withOpacity(0.08),
+                    surfaceTintColor: Colors.transparent,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
-                      side: const BorderSide(color: Color(0xFFE2E8F0)),
                     ),
                     color: Colors.white,
                     child: TableCalendar(
-                      rowHeight: 34,
-                      daysOfWeekHeight: 24,
+                      rowHeight: 28,
+                      daysOfWeekHeight: 20,
                       firstDay: DateTime.utc(2020, 1, 1),
                       lastDay: DateTime.utc(2030, 12, 31),
                       focusedDay: _focusedDay,
@@ -319,38 +330,7 @@ class _CalendarViewState extends State<CalendarView> {
                         });
                         final eventsOnDay = _getEventsForDay(selectedDay);
                         if (eventsOnDay.isNotEmpty) {
-                          if (eventsOnDay.length == 1) {
-                            _showEventDetailsDialog(eventsOnDay.first as Map<String, dynamic>);
-                          } else {
-                            showDialog(
-                              context: context,
-                              builder: (context) {
-                                return AlertDialog(
-                                  title: Text('Events on ${DateFormat('MMM d, yyyy').format(selectedDay)}'),
-                                  content: SizedBox(
-                                    width: 400,
-                                    child: ListView.builder(
-                                      shrinkWrap: true,
-                                      itemCount: eventsOnDay.length,
-                                      itemBuilder: (context, index) {
-                                        final e = eventsOnDay[index] as Map<String, dynamic>;
-                                        final startTime = DateTime.tryParse(e['startTime'] ?? '');
-                                        final timeStr = startTime != null ? DateFormat('h:mm a').format(startTime) : '';
-                                        return ListTile(
-                                          title: Text(e['title'] ?? 'Event'),
-                                          subtitle: Text(timeStr),
-                                          onTap: () {
-                                            Navigator.pop(context);
-                                            _showEventDetailsDialog(e);
-                                          },
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                );
-                              },
-                            );
-                          }
+                          _showAllEventsDialog(selectedDay, eventsOnDay.cast<Map<String, dynamic>>());
                         }
                       },
                       onFormatChanged: (format) {
@@ -361,16 +341,18 @@ class _CalendarViewState extends State<CalendarView> {
                       headerStyle: const HeaderStyle(
                         formatButtonVisible: false,
                         titleCentered: true,
-                        titleTextStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        titleTextStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                        headerPadding: EdgeInsets.symmetric(vertical: 4.0),
                       ),
                       calendarStyle: CalendarStyle(
+                        cellMargin: const EdgeInsets.all(4),
                         todayDecoration: BoxDecoration(
-                          color: const Color(0xFF2563EB).withOpacity(0.1),
+                          color: const Color(0xFF8B5CF6).withOpacity(0.1),
                           shape: BoxShape.circle,
                         ),
-                        todayTextStyle: const TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold),
+                        todayTextStyle: const TextStyle(color: Color(0xFF8B5CF6), fontWeight: FontWeight.bold),
                         selectedDecoration: const BoxDecoration(
-                          color: Color(0xFF2563EB),
+                          color: Color(0xFF8B5CF6),
                           shape: BoxShape.circle,
                         ),
                       ),
@@ -384,7 +366,7 @@ class _CalendarViewState extends State<CalendarView> {
                                 height: 6,
                                 decoration: const BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: Color(0xFF2563EB),
+                                  color: Color(0xFF8B5CF6),
                                 ),
                               ),
                             );
@@ -436,9 +418,15 @@ class _CalendarViewState extends State<CalendarView> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Padding(
-            padding: EdgeInsets.only(left: 8.0, bottom: 8.0),
-            child: Text("Upcoming Events", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          Padding(
+            padding: const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 12.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text("Upcoming Events", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A))),
+                Text("View all", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: const Color(0xFF8B5CF6))),
+              ],
+            ),
           ),
           if (upcoming.isEmpty)
             const Padding(
@@ -448,7 +436,8 @@ class _CalendarViewState extends State<CalendarView> {
           ...upcoming.map((event) {
             final startTime = DateTime.tryParse(event['startTime'] ?? '');
             final timeStr = startTime != null ? DateFormat('MMM d, h:mm a').format(startTime) : 'Unknown time';
-            return _buildUpcomingEvent(event, timeStr, Colors.blue);
+            final color = event['color'] != null ? Color(int.parse(event['color'].replaceFirst('#', '0xFF'))) : const Color(0xFF8B5CF6);
+            return _buildUpcomingEvent(event, timeStr, color);
           }).toList(),
           
           const SizedBox(height: 24),
@@ -484,18 +473,21 @@ class _CalendarViewState extends State<CalendarView> {
           border: Border.all(color: const Color(0xFFE2E8F0)),
         ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Container(width: 4, height: 32, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2))),
+            Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                  Text(time, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                  Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
+                  Text(time, style: const TextStyle(color: Color(0xFF64748B), fontSize: 12)),
                 ],
               ),
             ),
+            const Icon(Icons.calendar_today_outlined, color: Color(0xFF64748B), size: 18),
           ],
         ),
       ),
@@ -515,7 +507,7 @@ class _CalendarViewState extends State<CalendarView> {
             });
           },
           style: TextButton.styleFrom(
-            foregroundColor: const Color(0xFF2563EB),
+            foregroundColor: const Color(0xFF8B5CF6),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
@@ -529,7 +521,7 @@ class _CalendarViewState extends State<CalendarView> {
           return TextButton(
             onPressed: onPressed,
             style: TextButton.styleFrom(
-              foregroundColor: const Color(0xFF2563EB),
+              foregroundColor: const Color(0xFF8B5CF6),
               padding: const EdgeInsets.all(12),
               minimumSize: const Size(0, 0),
               shape: RoundedRectangleBorder(
@@ -537,7 +529,7 @@ class _CalendarViewState extends State<CalendarView> {
                 side: const BorderSide(color: Color(0xFFE2E8F0)),
               ),
             ),
-            child: Icon(icon, size: 18),
+            child: Icon(icon, size: 18, color: const Color(0xFF8B5CF6)),
           );
         }
 
@@ -548,14 +540,17 @@ class _CalendarViewState extends State<CalendarView> {
               setState(() {
                 if (_currentView == 'Day') {
                   _focusedDay = _focusedDay.subtract(const Duration(days: 1));
+                  _selectedDay = _focusedDay;
                 } else if (_currentView == 'Week') {
                   _focusedDay = _focusedDay.subtract(const Duration(days: 7));
+                  _selectedDay = null;
                 } else if (_currentView == 'Month') {
                   _focusedDay = DateTime(_focusedDay.year, _focusedDay.month - 1, _focusedDay.day);
+                  _selectedDay = null;
                 } else if (_currentView == 'Year') {
                   _focusedDay = DateTime(_focusedDay.year - 1, _focusedDay.month, _focusedDay.day);
+                  _selectedDay = null;
                 }
-                _selectedDay = _focusedDay;
               });
             }),
             const SizedBox(width: 8),
@@ -563,14 +558,17 @@ class _CalendarViewState extends State<CalendarView> {
               setState(() {
                 if (_currentView == 'Day') {
                   _focusedDay = _focusedDay.add(const Duration(days: 1));
+                  _selectedDay = _focusedDay;
                 } else if (_currentView == 'Week') {
                   _focusedDay = _focusedDay.add(const Duration(days: 7));
+                  _selectedDay = null;
                 } else if (_currentView == 'Month') {
                   _focusedDay = DateTime(_focusedDay.year, _focusedDay.month + 1, _focusedDay.day);
+                  _selectedDay = null;
                 } else if (_currentView == 'Year') {
                   _focusedDay = DateTime(_focusedDay.year + 1, _focusedDay.month, _focusedDay.day);
+                  _selectedDay = null;
                 }
-                _selectedDay = _focusedDay;
               });
             }),
             const SizedBox(width: 12),
@@ -628,7 +626,7 @@ class _CalendarViewState extends State<CalendarView> {
                               borderRadius: BorderRadius.circular(8),
                               child: Container(
                                 decoration: BoxDecoration(
-                                  color: isCurrentSelection ? const Color(0xFF2563EB) : const Color(0xFFF1F5F9),
+                                  color: isCurrentSelection ? const Color(0xFF8B5CF6) : const Color(0xFFF1F5F9),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 alignment: Alignment.center,
@@ -770,7 +768,7 @@ class _CalendarViewState extends State<CalendarView> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.white : Colors.transparent,
+          color: isSelected ? const Color(0xFF8B5CF6) : Colors.transparent,
           borderRadius: BorderRadius.circular(6),
           boxShadow: isSelected ? [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4)] : null,
         ),
@@ -779,7 +777,7 @@ class _CalendarViewState extends State<CalendarView> {
           style: TextStyle(
             fontSize: 12,
             fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-            color: isSelected ? const Color(0xFF0F172A) : const Color(0xFF64748B),
+            color: isSelected ? Colors.white : const Color(0xFF64748B),
           ),
         ),
       ),
@@ -921,395 +919,13 @@ class _CalendarViewState extends State<CalendarView> {
   }
 
   void _showEventDetailsDialog(Map<String, dynamic> event) {
-    final title = event['title'] ?? 'No Title';
-    final startTimeStr = event['startTime'];
-    final endTimeStr = event['endTime'];
-    final description = event['description'] ?? '';
-    final organizer = event['organizerEmail'] ?? event['organizer'] ?? 'Unknown'; 
-
-    String formatMockupTime(String? startStr, String? endStr) {
-      if (startStr == null || startStr.isEmpty) return 'Unknown';
-      final start = DateTime.tryParse(startStr);
-      final end = DateTime.tryParse(endStr ?? '');
-      if (start == null) return startStr;
-      
-      final datePart = DateFormat('EEE dd MMM yyyy').format(start);
-      final startVal = DateFormat('hh:mm').format(start);
-      final endVal = end != null ? DateFormat('hh:mm a').format(end) : '';
-      
-      if (endVal.isNotEmpty) {
-        return '$datePart  •  $startVal - $endVal';
-      } else {
-        return '$datePart  •  $startVal';
-      }
-    }
-
-    String calculateDuration(String? startStr, String? endStr) {
-      if (startStr == null || endStr == null) return '';
-      final start = DateTime.tryParse(startStr);
-      final end = DateTime.tryParse(endStr);
-      if (start == null || end == null) return '';
-      final diff = end.difference(start);
-      if (diff.inMinutes < 60) {
-        return '${diff.inMinutes} minutes';
-      } else {
-        final hours = diff.inHours;
-        final mins = diff.inMinutes % 60;
-        if (mins == 0) {
-          return "$hours hour${hours > 1 ? 's' : ''}";
-        } else {
-          return "$hours hr $mins min";
-        }
-      }
-    }
-
-    final formattedTime = formatMockupTime(startTimeStr, endTimeStr);
-    final durationStr = calculateDuration(startTimeStr, endTimeStr);
-
-    String responseStatus = 'accepted';
-
+    // Use the elaborated dialog widget for detailed event view to match the design
     showDialog(
       context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            Color pillBgColor;
-            Color pillTextColor;
-            String statusText;
-            String statusSubtext;
-
-            if (responseStatus == 'accepted') {
-              pillBgColor = const Color(0xFFECFDF5);
-              pillTextColor = const Color(0xFF10B981);
-              statusText = 'Accepted';
-              statusSubtext = 'You accepted this invitation.';
-            } else if (responseStatus == 'tentative') {
-              pillBgColor = const Color(0xFFEEF2FF);
-              pillTextColor = const Color(0xFF4F46E5);
-              statusText = 'Tentative';
-              statusSubtext = 'You accepted this invitation as tentative.';
-            } else {
-              pillBgColor = const Color(0xFFFEF2F2);
-              pillTextColor = const Color(0xFFEF4444);
-              statusText = 'Declined';
-              statusSubtext = 'You declined this invitation.';
-            }
-
-            return Dialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              elevation: 8,
-              backgroundColor: Colors.white,
-              surfaceTintColor: Colors.transparent,
-              child: Container(
-                width: 500,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Header Row: Calendar, Delete, Expand, Close
-                      Padding(
-                        padding: const EdgeInsets.only(left: 24, right: 16, top: 16, bottom: 8),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              'Calendar',
-                              style: TextStyle(color: Color(0xFF1F2937), fontSize: 16, fontWeight: FontWeight.bold),
-                            ),
-                            Row(
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: Color(0xFF6B7280), size: 20),
-                                  tooltip: 'Delete Event',
-                                  onPressed: () async {
-                                    Navigator.pop(context);
-                                    final id = event['id'];
-                                    if (id != null) {
-                                      final headers = await _getCalendarHeaders();
-                                      try {
-                                        final response = await http.delete(
-                                          Uri.parse('${AppConfig.instance.calendarUrl}/events/$id'),
-                                          headers: headers,
-                                        );
-                                        if (response.statusCode == 200) {
-                                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Event Deleted Successfully!')));
-                                          _fetchEvents();
-                                        } else {
-                                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to delete event: ${response.statusCode}')));
-                                        }
-                                      } catch (e) {
-                                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-                                      }
-                                    }
-                                  },
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.open_in_new, color: Color(0xFF6B7280), size: 20),
-                                  tooltip: 'Expand (Edit)',
-                                  onPressed: () async {
-                                    Navigator.pop(context);
-                                    await showDialog(
-                                      context: context,
-                                      builder: (context) => ElaboratedEventDialog(
-                                        event: event,
-                                        onEventDeleted: () => _fetchEvents(),
-                                      ),
-                                    );
-                                  },
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.close, color: Color(0xFF6B7280), size: 20),
-                                  onPressed: () => Navigator.pop(context),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      
-                      const Divider(height: 1, color: Color(0xFFE5E7EB)),
-                      
-                      // Event Title, Date and Duration
-                      Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFEFF6FF),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: const Icon(Icons.calendar_today, color: Colors.blue, size: 24),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    title,
-                                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    children: [
-                                      Container(
-                                        width: 6,
-                                        height: 6,
-                                        decoration: const BoxDecoration(
-                                          color: Colors.blue,
-                                          shape: BoxShape.circle,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          formattedTime,
-                                          style: const TextStyle(fontSize: 13, color: Color(0xFF4B5563), fontWeight: FontWeight.w500),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  if (durationStr.isNotEmpty) ...[
-                                    const SizedBox(height: 4),
-                                    Padding(
-                                      padding: const EdgeInsets.only(left: 14),
-                                      child: Text(
-                                        durationStr,
-                                        style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      
-                      const Divider(height: 1, color: Color(0xFFE5E7EB)),
-                      
-                      // Organizer Row
-                      Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            CircleAvatar(
-                              backgroundColor: const Color(0xFF2563EB),
-                              radius: 18,
-                              child: Text(
-                                organizer.isNotEmpty ? organizer[0].toUpperCase() : 'U',
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          '${organizer.split('@').first} invited you.',
-                                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: pillBgColor,
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                        child: Text(
-                                          statusText,
-                                          style: TextStyle(color: pillTextColor, fontSize: 11, fontWeight: FontWeight.bold),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    statusSubtext,
-                                    style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      
-                      const Divider(height: 1, color: Color(0xFFE5E7EB)),
-                      
-                      // Agenda Row
-                      Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: const [
-                                Icon(Icons.format_list_bulleted, color: Color(0xFF6B7280), size: 20),
-                                SizedBox(width: 12),
-                                Text(
-                                  'Agenda',
-                                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                              decoration: BoxDecoration(
-                                border: Border.all(color: const Color(0xFFE5E7EB)),
-                                borderRadius: BorderRadius.circular(8),
-                                color: const Color(0xFFF9FAFB),
-                              ),
-                              child: Text(
-                                description.isEmpty || description == 'No description provided.'
-                                    ? 'No description provided.'
-                                    : description,
-                                style: const TextStyle(fontSize: 13, color: Color(0xFF4B5563)),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      
-                      const Divider(height: 1, color: Color(0xFFE5E7EB)),
-                      
-                      // Footer (RSVP buttons)
-                      Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () {
-                                  setState(() {
-                                    responseStatus = 'accepted';
-                                  });
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Response updated to Accepted!')),
-                                  );
-                                },
-                                icon: const Icon(Icons.check, size: 16),
-                                label: const Text('Accepted', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: responseStatus == 'accepted' ? const Color(0xFF10B981) : const Color(0xFF6B7280),
-                                  backgroundColor: responseStatus == 'accepted' ? const Color(0xFFECFDF5) : Colors.white,
-                                  side: BorderSide(color: responseStatus == 'accepted' ? const Color(0xFF10B981) : const Color(0xFFD1D5DB)),
-                                  padding: const EdgeInsets.symmetric(vertical: 14),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () {
-                                  setState(() {
-                                    responseStatus = 'tentative';
-                                  });
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Response updated to Tentative!')),
-                                  );
-                                },
-                                icon: const Icon(Icons.help_outline, size: 16),
-                                label: const Text('Tentative', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: responseStatus == 'tentative' ? const Color(0xFF4F46E5) : const Color(0xFF6B7280),
-                                  backgroundColor: responseStatus == 'tentative' ? const Color(0xFFEEF2FF) : Colors.white,
-                                  side: BorderSide(color: responseStatus == 'tentative' ? const Color(0xFF4F46E5) : const Color(0xFFD1D5DB)),
-                                  padding: const EdgeInsets.symmetric(vertical: 14),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () {
-                                  setState(() {
-                                    responseStatus = 'declined';
-                                  });
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Response updated to Declined!')),
-                                  );
-                                },
-                                icon: const Icon(Icons.close, size: 16),
-                                label: const Text('Decline', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: responseStatus == 'declined' ? const Color(0xFFEF4444) : const Color(0xFF6B7280),
-                                  backgroundColor: responseStatus == 'declined' ? const Color(0xFFFEF2F2) : Colors.white,
-                                  side: BorderSide(color: responseStatus == 'declined' ? const Color(0xFFEF4444) : const Color(0xFFD1D5DB)),
-                                  padding: const EdgeInsets.symmetric(vertical: 14),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
+      builder: (context) => ElaboratedEventDialog(
+        event: event,
+        onEventDeleted: () => _fetchEvents(),
+      ),
     );
   }
 
@@ -1318,42 +934,78 @@ class _CalendarViewState extends State<CalendarView> {
       context: context,
       builder: (context) {
         return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           child: Container(
-            width: 400,
+            width: 360,
+            constraints: const BoxConstraints(maxHeight: 500),
             padding: const EdgeInsets.all(24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(DateFormat('MMMM d, yyyy').format(date), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Events on ${DateFormat('MMM d, yyyy').format(date)}',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Color(0xFF64748B), size: 20),
+                      onPressed: () => Navigator.pop(context),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
                 Flexible(
-                  child: ListView.builder(
+                  child: ListView.separated(
                     shrinkWrap: true,
                     itemCount: events.length,
+                    separatorBuilder: (context, index) => const SizedBox(height: 12),
                     itemBuilder: (context, index) {
                       final e = events[index];
                       final st = DateTime.tryParse(e['startTime'] ?? '');
                       final timeStr = st != null ? DateFormat('h:mm a').format(st) : '';
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(e['title'] ?? 'Event', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A8A))),
-                        subtitle: Text(timeStr, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                      final color = e['color'] != null 
+                          ? Color(int.parse(e['color'].replaceFirst('#', '0xFF'))) 
+                          : const Color(0xFF8B5CF6);
+                          
+                      return GestureDetector(
                         onTap: () {
                           Navigator.pop(context);
                           _showEventDetailsDialog(e);
                         },
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(e['title'] ?? 'Event', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
+                                    const SizedBox(height: 2),
+                                    Text(timeStr, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                                  ],
+                                ),
+                              ),
+                              const Icon(Icons.chevron_right, color: Color(0xFF94A3B8), size: 18),
+                            ],
+                          ),
+                        ),
                       );
                     },
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Close', style: TextStyle(color: Color(0xFF64748B))),
                   ),
                 ),
               ],
@@ -1397,11 +1049,11 @@ class _CalendarViewState extends State<CalendarView> {
     );
   }
 
-  Widget _buildMonthCell(DateTime date, {bool isToday = false, bool isOutside = false}) {
+  Widget _buildMonthCell(DateTime date, {bool isToday = false, bool isSelected = false, bool isOutside = false}) {
     return Container(
       constraints: const BoxConstraints.expand(),
       decoration: BoxDecoration(
-        color: isToday ? const Color(0xFFEFF6FF) : Colors.transparent,
+        color: isToday ? const Color(0xFFEFF6FF) : (isSelected ? const Color(0xFFF8FAFC) : Colors.transparent),
         border: Border.all(color: const Color(0xFFE2E8F0), width: 0.5),
       ),
       alignment: Alignment.topCenter,
@@ -1409,10 +1061,20 @@ class _CalendarViewState extends State<CalendarView> {
       child: isToday
           ? Container(
               padding: const EdgeInsets.all(6),
-              decoration: const BoxDecoration(color: Color(0xFF2563EB), shape: BoxShape.circle),
+              decoration: const BoxDecoration(color: Color(0xFF8B5CF6), shape: BoxShape.circle),
               child: Text('${date.day}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             )
-          : Text('${date.day}', style: TextStyle(color: isOutside ? const Color(0xFF94A3B8) : const Color(0xFF0F172A))),
+          : isSelected
+              ? Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: const Color(0xFF8B5CF6), width: 1.5),
+                  ),
+                  child: Text('${date.day}', style: const TextStyle(color: Color(0xFF8B5CF6), fontWeight: FontWeight.bold)),
+                )
+              : Text('${date.day}', style: TextStyle(color: isOutside ? const Color(0xFF94A3B8) : const Color(0xFF0F172A))),
     );
   }
 
@@ -1420,7 +1082,7 @@ class _CalendarViewState extends State<CalendarView> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final availableHeight = constraints.maxHeight - 32 - 48; // 32 for padding, 48 for days of week header
-        final calculatedRowHeight = (availableHeight / 6).clamp(40.0, 200.0);
+        final calculatedRowHeight = availableHeight / 6;
         return Container(
           color: Colors.white,
           padding: const EdgeInsets.all(16),
@@ -1436,8 +1098,15 @@ class _CalendarViewState extends State<CalendarView> {
           setState(() {
             _selectedDay = selectedDay;
             _focusedDay = focusedDay;
-            _currentView = 'Day';
           });
+          final events = _getEventsForDay(selectedDay);
+          if (events.isNotEmpty) {
+            _showAllEventsDialog(selectedDay, events.cast<Map<String, dynamic>>());
+          } else {
+            setState(() {
+              _currentView = 'Day';
+            });
+          }
         },
         headerVisible: false,
         daysOfWeekStyle: const DaysOfWeekStyle(
@@ -1451,54 +1120,87 @@ class _CalendarViewState extends State<CalendarView> {
         calendarBuilders: CalendarBuilders(
           defaultBuilder: (context, date, events) => _buildMonthCell(date),
           todayBuilder: (context, date, events) => _buildMonthCell(date, isToday: true),
-          selectedBuilder: (context, date, events) => _buildMonthCell(date, isToday: true), // Reuse today styling for selected
+          selectedBuilder: (context, date, events) {
+            final bool isActualToday = isSameDay(date, DateTime.now());
+            return _buildMonthCell(date, isToday: isActualToday, isSelected: !isActualToday);
+          },
           outsideBuilder: (context, date, events) => _buildMonthCell(date, isOutside: true),
           markerBuilder: (context, date, events) {
             if (events.isEmpty) return null;
             return Positioned(
-              bottom: 4,
               left: 4,
               right: 4,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+              bottom: 2,
+              child: SingleChildScrollView(
+                physics: const NeverScrollableScrollPhysics(),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  ...events.take(events.length > 2 ? 1 : events.length).map((e) {
-                    final eventMap = e as Map<String, dynamic>;
-                    return GestureDetector(
-                      onTap: () => _showEventDetailsDialog(eventMap),
-                      child: Container(
-                        margin: const EdgeInsets.only(bottom: 2),
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEFF6FF),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: const Color(0xFFBFDBFE)),
+                  if (events.length == 1)
+                    ...events.map((e) {
+                      final eventMap = e as Map<String, dynamic>;
+                      final color = eventMap['color'] != null 
+                          ? Color(int.parse(eventMap['color'].replaceFirst('#', '0xFF'))) 
+                          : const Color(0xFF8B5CF6);
+                      return GestureDetector(
+                        onTap: () => _showEventDetailsDialog(eventMap),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 2),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: color.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            eventMap['title'] ?? 'Event',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w600),
+                          ),
                         ),
-                        child: Text(
-                          eventMap['title'] ?? 'Event',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 10, color: Color(0xFF1E3A8A)),
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                  if (events.length > 2)
+                      );
+                    }).toList()
+                  else if (events.length > 1)
                     GestureDetector(
                       onTap: () => _showAllEventsDialog(date, events.cast<Map<String, dynamic>>()),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 2),
-                        child: Text(
-                          '+${events.length - 1} more',
-                          style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.bold),
-                          textAlign: TextAlign.center,
-                        ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: events.take(3).map((e) {
+                              final eventMap = e as Map<String, dynamic>;
+                              final color = eventMap['color'] != null 
+                                  ? Color(int.parse(eventMap['color'].replaceFirst('#', '0xFF'))) 
+                                  : const Color(0xFF8B5CF6);
+                              return Container(
+                                margin: const EdgeInsets.symmetric(horizontal: 1.5),
+                                width: 5,
+                                height: 5,
+                                decoration: BoxDecoration(
+                                  color: color,
+                                  shape: BoxShape.circle,
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                          if (events.length > 3)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                '+${events.length - 3} more',
+                                style: const TextStyle(fontSize: 10, color: Color(0xFF8B5CF6), fontWeight: FontWeight.bold),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                 ],
               ),
-            );
+            ));
           },
         ),
         eventLoader: _getEventsForDay,
@@ -1691,7 +1393,7 @@ class _CalendarViewState extends State<CalendarView> {
                 Expanded(
                   child: IgnorePointer(
                     child: TableCalendar(
-                      rowHeight: 26,
+                      rowHeight: 24,
                       daysOfWeekHeight: 20,
                       firstDay: DateTime(year, index + 1, 1),
                       lastDay: DateTime(year, index + 2, 0),
@@ -1699,13 +1401,21 @@ class _CalendarViewState extends State<CalendarView> {
                       calendarFormat: CalendarFormat.month,
                       headerVisible: false,
                       daysOfWeekStyle: const DaysOfWeekStyle(
-                        weekdayStyle: TextStyle(fontSize: 10, color: Color(0xFF64748B)),
-                        weekendStyle: TextStyle(fontSize: 10, color: Color(0xFF64748B)),
+                        weekdayStyle: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                        weekendStyle: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                       ),
                       calendarStyle: const CalendarStyle(
-                        defaultTextStyle: TextStyle(fontSize: 12),
-                        weekendTextStyle: TextStyle(fontSize: 12),
+                        defaultTextStyle: TextStyle(fontSize: 11),
+                        weekendTextStyle: TextStyle(fontSize: 11),
+                        todayTextStyle: TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
                         outsideDaysVisible: false,
+                        cellMargin: EdgeInsets.all(2),
+                        cellPadding: EdgeInsets.zero,
+                        markersMaxCount: 0,
+                        todayDecoration: BoxDecoration(
+                          color: Color(0xFF2563EB),
+                          shape: BoxShape.circle,
+                        ),
                       ),
                     ),
                   ),

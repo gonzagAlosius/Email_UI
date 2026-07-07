@@ -48,3 +48,40 @@ void openInNewTab(String url) {
     }
   }
 }
+
+void printWindowWeb() {
+  try {
+    html.window.print();
+  } catch (e) {
+    // Ignore or log
+  }
+}
+
+void printHtmlWeb(String title, String htmlBody) {
+  try {
+    String safeTitle = title.replaceAll("'", "\\'").replaceAll('\n', ' ').replaceAll('\r', '');
+    String safeHtml = htmlBody.replaceAll("'", "\\'").replaceAll('\n', ' ').replaceAll('\r', '');
+    final jsCode = """
+      var iframe = document.createElement('iframe');
+      iframe.style.position = 'absolute';
+      iframe.style.width = '0px';
+      iframe.style.height = '0px';
+      iframe.style.border = 'none';
+      document.body.appendChild(iframe);
+      
+      var doc = iframe.contentWindow.document;
+      doc.open();
+      doc.write('<html><head><title>' + '$safeTitle' + '</title></head><body style="font-family: sans-serif; padding: 20px;">' + '$safeHtml' + '</body></html>');
+      doc.close();
+      
+      iframe.contentWindow.focus();
+      setTimeout(function() {
+        iframe.contentWindow.print();
+        document.body.removeChild(iframe);
+      }, 500);
+    """;
+    js.context.callMethod('eval', [jsCode]);
+  } catch (e) {
+    // Ignore or log
+  }
+}

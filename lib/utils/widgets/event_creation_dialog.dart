@@ -187,66 +187,6 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
     }
   }
 
-  Future<void> _showAttendeesPopup(TextEditingController controller) async {
-    List<String> selectedEmails = controller.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-    
-    await showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setPopupState) {
-            return AlertDialog(
-              title: const Text('Select Attendees'),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              content: SizedBox(
-                width: 400,
-                child: _isLoadingUsers 
-                    ? const Center(child: CircularProgressIndicator())
-                    : _orgUsers.isEmpty
-                        ? const Padding(
-                            padding: EdgeInsets.all(16.0),
-                            child: Text('No users found in organization.'),
-                          )
-                        : ListView.builder(
-                            shrinkWrap: true,
-                            itemCount: _orgUsers.length,
-                            itemBuilder: (context, index) {
-                    final email = _orgUsers[index];
-                    final isSelected = selectedEmails.contains(email);
-                    return CheckboxListTile(
-                      title: Text(email, style: const TextStyle(fontSize: 14)),
-                      value: isSelected,
-                      dense: true,
-                      onChanged: (val) {
-                        setPopupState(() {
-                          if (val == true) {
-                            selectedEmails.add(email);
-                          } else {
-                            selectedEmails.remove(email);
-                          }
-                        });
-                      },
-                    );
-                  },
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Done'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-    
-    setState(() {
-      controller.text = selectedEmails.join(', ');
-    });
-  }
-
   Future<void> _saveEvent() async {
     if (_formKey.currentState!.validate()) {
       
@@ -323,323 +263,407 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
   @override
   Widget build(BuildContext context) {
     final bool isEditing = widget.initialEvent != null && widget.initialEvent!['id'] != null;
-    final bool isWide = MediaQuery.of(context).size.width > 600;
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      elevation: 12,
-      backgroundColor: Colors.white,
+      elevation: 24,
+      backgroundColor: Colors.transparent, // For Stack overlay
       surfaceTintColor: Colors.transparent,
       child: Container(
-        width: 800,
+        width: 1000,
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 40, offset: const Offset(0, 10))
+          ],
         ),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(32),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFEFF6FF),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(Icons.calendar_today, color: Colors.blue, size: 24),
-                        ),
-                        const SizedBox(width: 16),
-                        Text(
-                          isEditing ? 'Edit Event' : 'Create Event',
-                          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
-                        ),
-                      ],
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close, color: Color(0xFF4B5563), size: 24),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                const Divider(height: 1, color: Color(0xFFE5E7EB)),
-                const SizedBox(height: 24),
-                
-                _buildTextField('Title', _titleController, isRequired: true),
-                const SizedBox(height: 16),
-                
-                if (isWide) 
-                  Row(
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(32),
+              child: Form(
+                key: _formKey,
+                child: IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Expanded(child: _buildTextField('Required Attendees', _requiredAttendeesController, onTap: () => _showAttendeesPopup(_requiredAttendeesController))),
-                      const SizedBox(width: 16),
-                      Expanded(child: _buildTextField('Optional Attendees', _optionalAttendeesController, onTap: () => _showAttendeesPopup(_optionalAttendeesController))),
-                    ],
-                  )
-                else ...[
-                  _buildTextField('Required Attendees', _requiredAttendeesController, onTap: () => _showAttendeesPopup(_requiredAttendeesController)),
-                  const SizedBox(height: 16),
-                  _buildTextField('Optional Attendees', _optionalAttendeesController, onTap: () => _showAttendeesPopup(_optionalAttendeesController)),
-                ],
-                const SizedBox(height: 16),
-                
-                Row(
-                  children: [
-                    Switch(
-                      value: _isAllDay,
-                      onChanged: (val) => setState(() => _isAllDay = val),
-                      activeColor: Colors.blue,
-                    ),
-                    const Text('All Day Event'),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                
-                // Date & Time Row
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildDateTimePicker(
-                        label: 'Start Date',
-                        text: DateFormat('MMM d, yyyy').format(_startDate),
-                        icon: Icons.calendar_today,
-                        onTap: () => _selectDate(context, true),
-                      ),
-                    ),
-                    if (!_isAllDay) const SizedBox(width: 16),
-                    if (!_isAllDay)
+                      // Left Column: Main Details
                       Expanded(
-                        child: _buildDateTimePicker(
-                          label: 'Start Time',
-                          text: _startTime.format(context),
-                          icon: Icons.access_time,
-                          onTap: () => _selectTime(context, true),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildDateTimePicker(
-                        label: 'End Date',
-                        text: DateFormat('MMM d, yyyy').format(_endDate),
-                        icon: Icons.calendar_today,
-                        onTap: () => _selectDate(context, false),
-                      ),
-                    ),
-                    if (!_isAllDay) const SizedBox(width: 16),
-                    if (!_isAllDay)
-                      Expanded(
-                        child: _buildDateTimePicker(
-                          label: 'End Time',
-                          text: _endTime.format(context),
-                          icon: Icons.access_time,
-                          onTap: () => _selectTime(context, false),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                
-                if (isWide)
-                  Row(
-                    children: [
-                      Expanded(child: _buildDropdown('Time Zone', ['UTC', 'EST', 'PST', 'IST', 'GMT'], _timeZone, (v) => setState(() => _timeZone = v!))),
-                      const SizedBox(width: 16),
-                      Expanded(child: _buildDropdown('Show As', _showAsOptions, _showAs, (v) => setState(() => _showAs = v!))),
-                    ],
-                  )
-                else ...[
-                  _buildDropdown('Time Zone', ['UTC', 'EST', 'PST', 'IST', 'GMT'], _timeZone, (v) => setState(() => _timeZone = v!)),
-                  const SizedBox(height: 16),
-                  _buildDropdown('Show As', _showAsOptions, _showAs, (v) => setState(() => _showAs = v!)),
-                ],
-                const SizedBox(height: 16),
-                
-                _buildTextField('Location / Room', _locationController),
-                const SizedBox(height: 16),
-                
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blue.withOpacity(0.3)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Row(
+                        flex: 5,
+                        child: ScrollConfiguration(
+                          behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+                          child: SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.video_camera_front, color: Colors.blue),
-                              SizedBox(width: 8),
-                              Text('Teams Meeting', style: TextStyle(fontWeight: FontWeight.bold)),
+                              // Header
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    width: 64,
+                                    height: 64,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF5F3FF),
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(color: const Color(0xFFEDE9FE)),
+                                    ),
+                                    child: const Center(
+                                      child: Icon(Icons.edit_calendar, color: Color(0xFF8B5CF6), size: 28),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 24),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const SizedBox(height: 12),
+                                        Text(
+                                          isEditing ? 'Edit Event' : 'Create Event',
+                                          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF0F172A), letterSpacing: -0.5),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 32),
+
+                              _buildTextField('Event Title', _titleController, isRequired: true),
+                              const SizedBox(height: 20),
+
+                              Row(
+                                children: [
+                                  Switch(
+                                    value: _isAllDay,
+                                    onChanged: (val) => setState(() => _isAllDay = val),
+                                    activeColor: const Color(0xFF8B5CF6),
+                                    activeTrackColor: const Color(0xFFC4B5FD),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Text('All Day Event', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Color(0xFF334155))),
+                                ],
+                              ),
+                              const SizedBox(height: 20),
+
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _buildDateTimePicker(
+                                      label: 'Start Date',
+                                      text: DateFormat('MMM d, yyyy').format(_startDate),
+                                      icon: Icons.calendar_today,
+                                      onTap: () => _selectDate(context, true),
+                                    ),
+                                  ),
+                                  if (!_isAllDay) const SizedBox(width: 16),
+                                  if (!_isAllDay)
+                                    Expanded(
+                                      child: _buildDateTimePicker(
+                                        label: 'Start Time',
+                                        text: _startTime.format(context),
+                                        icon: Icons.access_time,
+                                        onTap: () => _selectTime(context, true),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 20),
+
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _buildDateTimePicker(
+                                      label: 'End Date',
+                                      text: DateFormat('MMM d, yyyy').format(_endDate),
+                                      icon: Icons.calendar_today,
+                                      onTap: () => _selectDate(context, false),
+                                    ),
+                                  ),
+                                  if (!_isAllDay) const SizedBox(width: 16),
+                                  if (!_isAllDay)
+                                    Expanded(
+                                      child: _buildDateTimePicker(
+                                        label: 'End Time',
+                                        text: _endTime.format(context),
+                                        icon: Icons.access_time,
+                                        onTap: () => _selectTime(context, false),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 20),
+
+                              _buildTextField('Location / Room', _locationController),
+                              const SizedBox(height: 20),
+
+                              Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF5F3FF).withOpacity(0.5),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFFEDE9FE)),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Row(
+                                          children: const [
+                                            Icon(Icons.video_camera_front, color: Color(0xFF8B5CF6)),
+                                            SizedBox(width: 8),
+                                            Text('Teams Meeting', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF4C1D95))),
+                                          ],
+                                        ),
+                                        Switch(
+                                          value: _isTeamsMeeting,
+                                          onChanged: (val) => setState(() => _isTeamsMeeting = val),
+                                          activeColor: const Color(0xFF8B5CF6),
+                                          activeTrackColor: const Color(0xFFC4B5FD),
+                                        ),
+                                      ],
+                                    ),
+                                    if (_isTeamsMeeting) ...[
+                                      const SizedBox(height: 8),
+                                      GestureDetector(
+                                        onTap: () async {
+                                          await Clipboard.setData(const ClipboardData(text: 'https://teams.microsoft.com/l/meetup-join/...'));
+                                          if (mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Link copied!')));
+                                          }
+                                        },
+                                        child: const Text(
+                                          'Meeting Link: https://teams.microsoft.com/l/meetup-join/...',
+                                          style: TextStyle(color: Color(0xFF8B5CF6), decoration: TextDecoration.underline, fontSize: 13),
+                                        ),
+                                      ),
+                                    ]
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+
+                              _buildTextField('Description / Body', _descriptionController, maxLines: 4),
+                              const SizedBox(height: 20),
+                              _buildTextField('Agenda', _agendaController, maxLines: 3),
+                              const SizedBox(height: 20),
+
+                              InkWell(
+                                onTap: () {},
+                                borderRadius: BorderRadius.circular(8),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  decoration: BoxDecoration(
+                                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                                    borderRadius: BorderRadius.circular(8),
+                                    color: const Color(0xFFF8FAFC),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: const [
+                                      Icon(Icons.attach_file, color: Color(0xFF64748B), size: 18),
+                                      SizedBox(width: 8),
+                                      Text('Add Attachments', style: TextStyle(color: Color(0xFF475569), fontWeight: FontWeight.w600, fontSize: 14)),
+                                    ],
+                                  ),
+                                ),
+                              ),
                             ],
                           ),
-                          Switch(
-                            value: _isTeamsMeeting,
-                            onChanged: (val) => setState(() => _isTeamsMeeting = val),
-                            activeColor: Colors.blue,
-                          ),
-                        ],
-                      ),
-                      if (_isTeamsMeeting) ...[
-                        const SizedBox(height: 8),
-                        GestureDetector(
-                          onTap: () async {
-                            await Clipboard.setData(const ClipboardData(text: 'https://teams.microsoft.com/l/meetup-join/...'));
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Link copied!')),
-                              );
-                            }
-                          },
-                          child: const Text(
-                            'Meeting Link: https://teams.microsoft.com/l/meetup-join/...',
-                            style: TextStyle(color: Colors.blue, decoration: TextDecoration.underline),
-                          ),
                         ),
-                      ]
+                      ),
+                      ),
+                      
+                      // Vertical Divider
+                      Container(
+                        width: 1,
+                        color: const Color(0xFFF1F5F9),
+                        margin: const EdgeInsets.symmetric(horizontal: 32),
+                      ),
+                      
+                      // Right Column: Settings & Attendees
+                      Expanded(
+                        flex: 4,
+                        child: Column(
+                          children: [
+                            Expanded(
+                              child: ScrollConfiguration(
+                                behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+                                child: SingleChildScrollView(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Attendees & Settings', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                                    const SizedBox(height: 24),
+                                    
+                                    InlineAttendeeSearchField(
+                                      label: 'Required Attendees', 
+                                      controller: _requiredAttendeesController, 
+                                      orgUsers: _orgUsers
+                                    ),
+                                    const SizedBox(height: 16),
+                                    InlineAttendeeSearchField(
+                                      label: 'Optional Attendees', 
+                                      controller: _optionalAttendeesController, 
+                                      orgUsers: _orgUsers
+                                    ),
+                                    const SizedBox(height: 16),
+                                    
+                                    Row(
+                                      children: [
+                                        Expanded(child: _buildDropdown('Time Zone', ['UTC', 'EST', 'PST', 'IST', 'GMT'], _timeZone, (v) => setState(() => _timeZone = v!))),
+                                        const SizedBox(width: 16),
+                                        Expanded(child: _buildDropdown('Show As', _showAsOptions, _showAs, (v) => setState(() => _showAs = v!))),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 16),
+                                    
+                                    _buildTextField('Categories', _categoriesController),
+                                    const SizedBox(height: 16),
+                                    
+                                    Row(
+                                      children: [
+                                        Expanded(child: _buildDropdown('Reminder', _reminderOptions, _reminder, (v) => setState(() => _reminder = v!))),
+                                        const SizedBox(width: 16),
+                                        Expanded(child: _buildDropdown('Recurrence', _recurrenceOptions, _recurrence, (v) => setState(() => _recurrence = v!))),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 16),
+                                    
+                                    Row(
+                                      children: [
+                                        Expanded(child: _buildDropdown('Sensitivity', _sensitivityOptions, _sensitivity, (v) => setState(() => _sensitivity = v!))),
+                                        const SizedBox(width: 16),
+                                        Expanded(child: _buildDropdown('Importance', _importanceOptions, _importance, (v) => setState(() => _importance = v!))),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 16),
+                                    
+                                    _buildTextField('Organizer', _organizerController),
+                                    const SizedBox(height: 24),
+                                    
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Row(
+                                            children: [
+                                              SizedBox(
+                                                width: 24,
+                                                height: 24,
+                                                child: Checkbox(
+                                                  value: _responseRequested,
+                                                  onChanged: (val) => setState(() => _responseRequested = val!),
+                                                  activeColor: const Color(0xFF8B5CF6),
+                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              const Expanded(child: Text('Response Requested', style: TextStyle(fontSize: 13, color: Color(0xFF334155)))),
+                                            ],
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: Row(
+                                            children: [
+                                              SizedBox(
+                                                width: 24,
+                                                height: 24,
+                                                child: Checkbox(
+                                                  value: _allowForwarding,
+                                                  onChanged: (val) => setState(() => _allowForwarding = val!),
+                                                  activeColor: const Color(0xFF8B5CF6),
+                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              const Expanded(child: Text('Allow Forwarding', style: TextStyle(fontSize: 13, color: Color(0xFF334155)))),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 32),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            ),
+                            
+                            // Bottom Action Buttons
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                                const SizedBox(height: 24),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    TextButton(
+                                      onPressed: () => Navigator.of(context).pop(),
+                                      style: TextButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                      ),
+                                      child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.bold)),
+                                    ),
+                                    Row(
+                                      children: [
+                                        ElevatedButton(
+                                          onPressed: () => Navigator.of(context).pop(),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: const Color(0xFFF1F5F9),
+                                            foregroundColor: const Color(0xFF334155),
+                                            elevation: 0,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                                          ),
+                                          child: const Text('Save Draft', style: TextStyle(fontWeight: FontWeight.bold)),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        ElevatedButton(
+                                          onPressed: _saveEvent,
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: const Color(0xFF8B5CF6),
+                                            foregroundColor: Colors.white,
+                                            elevation: 0,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                                          ),
+                                          child: Text(isEditing ? 'Save Changes' : 'Create Event', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 16),
-
-                _buildTextField('Description / Body', _descriptionController, maxLines: 4),
-                const SizedBox(height: 16),
-                _buildTextField('Agenda', _agendaController, maxLines: 3),
-                const SizedBox(height: 16),
-
-                ElevatedButton.icon(
-                  onPressed: () {}, 
-                  icon: const Icon(Icons.attach_file), 
-                  label: const Text('Add Attachments'),
-                ),
-                const SizedBox(height: 16),
-
-                _buildTextField('Categories', _categoriesController),
-                const SizedBox(height: 16),
-
-                if (isWide)
-                  Row(
-                    children: [
-                      Expanded(child: _buildDropdown('Reminder', _reminderOptions, _reminder, (v) => setState(() => _reminder = v!))),
-                      const SizedBox(width: 16),
-                      Expanded(child: _buildDropdown('Recurrence', _recurrenceOptions, _recurrence, (v) => setState(() => _recurrence = v!))),
-                    ],
-                  )
-                else ...[
-                  _buildDropdown('Reminder', _reminderOptions, _reminder, (v) => setState(() => _reminder = v!)),
-                  const SizedBox(height: 16),
-                  _buildDropdown('Recurrence', _recurrenceOptions, _recurrence, (v) => setState(() => _recurrence = v!)),
-                ],
-                const SizedBox(height: 16),
-
-                if (isWide)
-                  Row(
-                    children: [
-                      Expanded(child: _buildDropdown('Sensitivity', _sensitivityOptions, _sensitivity, (v) => setState(() => _sensitivity = v!))),
-                      const SizedBox(width: 16),
-                      Expanded(child: _buildDropdown('Importance', _importanceOptions, _importance, (v) => setState(() => _importance = v!))),
-                    ],
-                  )
-                else ...[
-                  _buildDropdown('Sensitivity', _sensitivityOptions, _sensitivity, (v) => setState(() => _sensitivity = v!)),
-                  const SizedBox(height: 16),
-                  _buildDropdown('Importance', _importanceOptions, _importance, (v) => setState(() => _importance = v!)),
-                ],
-                const SizedBox(height: 16),
-
-                _buildTextField('Organizer', _organizerController),
-                const SizedBox(height: 16),
-
-                Row(
-                  children: [
-                    Expanded(
-                      child: CheckboxListTile(
-                        title: const Text('Response Requested'),
-                        value: _responseRequested,
-                        onChanged: (val) => setState(() => _responseRequested = val!),
-                        contentPadding: EdgeInsets.zero,
-                        controlAffinity: ListTileControlAffinity.leading,
-                      ),
-                    ),
-                    Expanded(
-                      child: CheckboxListTile(
-                        title: const Text('Allow Forwarding'),
-                        value: _allowForwarding,
-                        onChanged: (val) => setState(() => _allowForwarding = val!),
-                        contentPadding: EdgeInsets.zero,
-                        controlAffinity: ListTileControlAffinity.leading,
-                      ),
-                    ),
-                  ],
-                ),
-                
-                const SizedBox(height: 32),
-                const Divider(height: 1, color: Color(0xFFE5E7EB)),
-                const SizedBox(height: 24),
-                
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    ElevatedButton(
-                      onPressed: () {
-                        Navigator.of(context).pop();
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.grey.shade100,
-                        foregroundColor: Colors.black87,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                      ),
-                      child: const Text('Save Draft', style: TextStyle(fontWeight: FontWeight.bold)),
-                    ),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        TextButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          style: TextButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          child: const Text('Cancel', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
-                        ),
-                        const SizedBox(width: 12),
-                        ElevatedButton(
-                          onPressed: _saveEvent,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                          ),
-                          child: Text(isEditing ? 'Save' : 'Create', style: const TextStyle(fontWeight: FontWeight.bold)),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ],
+              ),
             ),
-          ),
+            
+            // Floating Close Button
+            Positioned(
+              top: 24,
+              right: 24,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Color(0xFF64748B), size: 20),
+                onPressed: () => Navigator.of(context).pop(),
+                splashRadius: 24,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -649,24 +673,25 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.black87)),
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF334155))),
         const SizedBox(height: 6),
         TextFormField(
           controller: controller,
           maxLines: maxLines,
           readOnly: onTap != null,
           onTap: onTap,
+          style: const TextStyle(fontSize: 14, color: Color(0xFF0F172A)),
           decoration: InputDecoration(
             isDense: true,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFF8B5CF6), width: 1.5)),
             filled: true,
-            fillColor: Colors.grey.shade50,
+            fillColor: Colors.white,
           ),
           validator: isRequired ? (value) {
-            if (value == null || value.isEmpty) {
-              return 'This field is required';
-            }
+            if (value == null || value.isEmpty) return 'This field is required';
             return null;
           } : null,
         ),
@@ -678,18 +703,22 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.black87)),
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF334155))),
         const SizedBox(height: 6),
         DropdownButtonFormField<String>(
           value: currentValue,
+          style: const TextStyle(fontSize: 14, color: Color(0xFF0F172A)),
+          icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF64748B), size: 20),
           decoration: InputDecoration(
             isDense: true,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFF8B5CF6), width: 1.5)),
             filled: true,
-            fillColor: Colors.grey.shade50,
+            fillColor: Colors.white,
           ),
-          items: options.map((opt) => DropdownMenuItem(value: opt, child: Text(opt, style: const TextStyle(fontSize: 14)))).toList(),
+          items: options.map((opt) => DropdownMenuItem(value: opt, child: Text(opt))).toList(),
           onChanged: onChanged,
         ),
       ],
@@ -700,23 +729,23 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.black87)),
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF334155))),
         const SizedBox(height: 6),
         InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(8),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey.shade300),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
               borderRadius: BorderRadius.circular(8),
-              color: Colors.grey.shade50,
+              color: Colors.white,
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(text, style: const TextStyle(fontSize: 14)),
-                Icon(icon, size: 18, color: Colors.grey.shade600),
+                Text(text, style: const TextStyle(fontSize: 14, color: Color(0xFF0F172A))),
+                Icon(icon, size: 18, color: const Color(0xFF64748B)),
               ],
             ),
           ),
@@ -725,3 +754,205 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
     );
   }
 }
+
+class InlineAttendeeSearchField extends StatefulWidget {
+  final String label;
+  final TextEditingController controller;
+  final List<String> orgUsers;
+
+  const InlineAttendeeSearchField({Key? key, required this.label, required this.controller, required this.orgUsers}) : super(key: key);
+
+  @override
+  _InlineAttendeeSearchFieldState createState() => _InlineAttendeeSearchFieldState();
+}
+
+class _InlineAttendeeSearchFieldState extends State<InlineAttendeeSearchField> {
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
+  List<String> _selectedEmails = [];
+  bool _showDropdown = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _updateSelectedFromController();
+    _searchController.addListener(() => setState(() {}));
+    _focusNode.addListener(() {
+      if (_focusNode.hasFocus) {
+        setState(() => _showDropdown = true);
+      } else {
+        Future.delayed(const Duration(milliseconds: 150), () {
+          if (mounted) setState(() => _showDropdown = false);
+        });
+      }
+    });
+  }
+  
+  @override
+  void didUpdateWidget(InlineAttendeeSearchField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller.text != widget.controller.text && !_focusNode.hasFocus) {
+       _updateSelectedFromController();
+    }
+  }
+
+  void _updateSelectedFromController() {
+    _selectedEmails = widget.controller.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+  }
+
+  void _updateControllerFromSelected() {
+    widget.controller.text = _selectedEmails.join(', ');
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _searchController.text.toLowerCase();
+    final showDropdown = _showDropdown;
+    
+    List<String> filteredUsers = widget.orgUsers
+        .where((u) => u.toLowerCase().contains(query) && !_selectedEmails.contains(u))
+        .toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(widget.label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF334155))),
+        const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            border: Border.all(color: _focusNode.hasFocus ? const Color(0xFF8B5CF6) : const Color(0xFFE2E8F0), width: _focusNode.hasFocus ? 1.5 : 1.0),
+            borderRadius: BorderRadius.circular(8),
+            color: Colors.white,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (_selectedEmails.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8.0),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _selectedEmails.map((email) => Chip(
+                      label: Text(email, style: const TextStyle(fontSize: 12, color: Color(0xFF4C1D95))),
+                      deleteIcon: const Icon(Icons.close, size: 16),
+                      onDeleted: () {
+                        setState(() {
+                          _selectedEmails.remove(email);
+                          _updateControllerFromSelected();
+                        });
+                      },
+                      backgroundColor: const Color(0xFFEDE9FE),
+                      deleteIconColor: const Color(0xFF8B5CF6),
+                      side: BorderSide.none,
+                      padding: EdgeInsets.zero,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    )).toList(),
+                  ),
+                ),
+              TextField(
+                controller: _searchController,
+                focusNode: _focusNode,
+                style: const TextStyle(fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: _selectedEmails.isEmpty ? 'Search attendees...' : 'Add more...',
+                  hintStyle: const TextStyle(color: Color(0xFF94A3B8)),
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+                onSubmitted: (val) {
+                  if (val.trim().isNotEmpty && !_selectedEmails.contains(val.trim())) {
+                    setState(() {
+                      _selectedEmails.add(val.trim());
+                      _searchController.clear();
+                      _updateControllerFromSelected();
+                      _focusNode.requestFocus();
+                    });
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+        if (showDropdown && (filteredUsers.isNotEmpty || widget.orgUsers.isEmpty || query.isNotEmpty))
+          Container(
+            margin: const EdgeInsets.only(top: 4),
+            constraints: const BoxConstraints(maxHeight: 200),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
+            ),
+            child: (widget.orgUsers.isEmpty && query.isEmpty)
+                ? const Padding(padding: EdgeInsets.all(12), child: Text('No users found. Type to add manually.', style: TextStyle(color: Color(0xFF64748B))))
+                : SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ...filteredUsers.map((user) {
+                          return MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: Listener(
+                              onPointerDown: (_) {
+                                setState(() {
+                                  _selectedEmails.add(user);
+                                  _searchController.clear();
+                                  _updateControllerFromSelected();
+                                  _focusNode.requestFocus();
+                                });
+                              },
+                              child: Container(
+                                width: double.infinity,
+                                color: Colors.transparent,
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                child: Text(user, style: const TextStyle(fontSize: 13, color: Color(0xFF334155))),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                        if (query.isNotEmpty && !filteredUsers.contains(query) && !_selectedEmails.contains(query))
+                          MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: Listener(
+                              onPointerDown: (_) {
+                                setState(() {
+                                  _selectedEmails.add(query.trim());
+                                  _searchController.clear();
+                                  _updateControllerFromSelected();
+                                  _focusNode.requestFocus();
+                                });
+                              },
+                              child: Container(
+                                width: double.infinity,
+                                color: const Color(0xFFF5F3FF),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.add_circle_outline, size: 16, color: Color(0xFF8B5CF6)),
+                                    const SizedBox(width: 8),
+                                    Text('Add "$query"', style: const TextStyle(fontSize: 13, color: Color(0xFF4C1D95), fontWeight: FontWeight.w600)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+          ),
+      ],
+    );
+  }
+}
+
