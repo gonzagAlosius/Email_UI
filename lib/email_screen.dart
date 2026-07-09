@@ -58,6 +58,13 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
   bool _isSentLoadingMore = false;
   bool _hasMoreInbox = true;
   bool _hasMoreSent = true;
+  bool _isLoadingDrafts = false;
+  bool _isDraftsLoadingMore = false;
+  int _draftsPage = 0;
+  bool _hasMoreDrafts = true;
+  int? _currentDraftUid;
+  List<String> _contactSuggestions = [];
+  bool _isLoadingSuggestions = false;
 
   String _selectedFolder = "Inbox";
   int? _selectedEmailIndex;
@@ -133,6 +140,8 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
         _fetchInboxFromBackend(loadMore: true);
       } else if (_selectedFolder == "Sent") {
         _fetchSentFromBackend(loadMore: true);
+      } else if (_selectedFolder == "Drafts") {
+        _fetchDraftsFromBackend(loadMore: true);
       }
     }
   }
@@ -190,6 +199,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
 
+      _fetchSuggestions();
       final orgConfigExists = await _checkOrgConfigAndPrompt();
 
       if (orgConfigExists) {
@@ -906,6 +916,101 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     }
   }
 
+  Future<void> _fetchDraftsFromBackend({bool loadMore = false}) async {
+    if (loadMore) {
+      if (_isDraftsLoadingMore || !_hasMoreDrafts) return;
+      setState(() {
+        _isDraftsLoadingMore = true;
+      });
+    } else {
+      setState(() {
+        _draftsPage = 0;
+        _hasMoreDrafts = true;
+        _isLoadingDrafts = true;
+      });
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(0.0);
+      }
+    }
+
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      String? email = prefs.getString('email');
+      String? password = _getMailPassword(prefs);
+      if (email == null) return;
+
+      final Map<String, String> headers = {'X-Email': email};
+      if (password != null && password.isNotEmpty) {
+        headers['X-Password'] = password;
+      }
+
+      int targetPage = loadMore ? _draftsPage + 1 : 0;
+      final response = await http.get(
+        Uri.parse(
+          '${AppConfig.instance.baseUrl}/email/drafts?page=$targetPage&size=50',
+        ),
+        headers: headers,
+      );
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        final List<Map<String, dynamic>> newEmails = data
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+
+        setState(() {
+          if (loadMore) {
+            _folders["Drafts"]!.addAll(newEmails);
+            _draftsPage = targetPage;
+          } else {
+            _folders["Drafts"] = newEmails;
+          }
+          if (newEmails.length < 50) {
+            _hasMoreDrafts = false;
+          }
+          _isPasswordMissing = false;
+        });
+      } else if (response.statusCode == 401) {
+        await _handleAuthFailureOrMissing(email);
+      }
+    } catch (e) {
+      debugPrint("Failed to fetch drafts: $e");
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDraftsLoadingMore = false;
+          _isLoadingDrafts = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _fetchSuggestions() async {
+    if (_isLoadingSuggestions) return;
+    setState(() {
+      _isLoadingSuggestions = true;
+    });
+    try {
+      final res = await http.get(
+        Uri.parse('${AppConfig.instance.baseUrl}/users'),
+      );
+      if (res.statusCode == 200) {
+        final List<dynamic> users = jsonDecode(res.body);
+        setState(() {
+          _contactSuggestions = users
+              .map((u) => u['emailAddress']?.toString() ?? '')
+              .where((e) => e.isNotEmpty)
+              .toList();
+        });
+      }
+    } catch (e) {
+      debugPrint("Failed to fetch suggestions: $e");
+    } finally {
+      setState(() {
+        _isLoadingSuggestions = false;
+      });
+    }
+  }
+
   Future<void> _fetchEmailDetails(
     Map<String, dynamic> email,
     int index, {
@@ -1071,10 +1176,13 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
         setState(() {
           _isPasswordMissing = false;
         });
+        _fetchSuggestions();
         if (_selectedFolder == "Inbox") {
           _fetchInboxFromBackend();
         } else if (_selectedFolder == "Sent") {
           _fetchSentFromBackend();
+        } else if (_selectedFolder == "Drafts") {
+          _fetchDraftsFromBackend();
         }
       } else {
         setState(() {
@@ -1090,6 +1198,9 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
   }
 
   void _selectFolder(String folder) {
+    if (_isComposing) {
+      _exitComposer(discard: false);
+    }
     setState(() {
       _selectedFolder = folder;
       _isComposing = false;
@@ -1102,6 +1213,8 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
       _fetchInboxFromBackend();
     } else if (folder == "Sent") {
       _fetchSentFromBackend();
+    } else if (folder == "Drafts") {
+      _fetchDraftsFromBackend();
     }
 
     if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
@@ -1110,6 +1223,9 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
   }
 
   void _startCompose() {
+    if (_isComposing) {
+      _exitComposer(discard: false);
+    }
     setState(() {
       _toController.clear();
       _ccController.clear();
@@ -1121,10 +1237,125 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
       _isForwardingInline = false;
       _showCcBcc = false;
       _selectedEmailIndex = null;
+      _currentDraftUid = null;
     });
     if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
       Navigator.pop(context);
     }
+  }
+
+  Future<void> _exitComposer({bool discard = false}) async {
+    final to = _toController.text.trim();
+    final subject = _subjectController.text.trim();
+    final content = _contentController.text.trim();
+    final draftUid = _currentDraftUid;
+
+    setState(() {
+      _isComposing = false;
+      _currentDraftUid = null;
+      _toController.clear();
+      _ccController.clear();
+      _subjectController.clear();
+      _contentController.clear();
+      _attachments = [];
+    });
+
+    if (discard) {
+      if (draftUid != null) {
+        try {
+          SharedPreferences prefs = await SharedPreferences.getInstance();
+          String? email = prefs.getString('email');
+          String? password = _getMailPassword(prefs);
+          if (email != null) {
+            final Map<String, String> headers = {'X-Email': email};
+            if (password != null && password.isNotEmpty) {
+              headers['X-Password'] = password;
+            }
+            await http.delete(
+              Uri.parse('${AppConfig.instance.baseUrl}/email/drafts/$draftUid'),
+              headers: headers,
+            );
+          }
+        } catch (e) {
+          debugPrint("Failed to delete draft: $e");
+        }
+      }
+      _showSnackBar("Draft discarded");
+      if (_selectedFolder == "Drafts") {
+        _fetchDraftsFromBackend();
+      }
+    } else {
+      if (to.isNotEmpty || subject.isNotEmpty || content.isNotEmpty) {
+        _showSnackBar("Saving draft...");
+        try {
+          SharedPreferences prefs = await SharedPreferences.getInstance();
+          String? email = prefs.getString('email');
+          String? password = _getMailPassword(prefs);
+          if (email != null) {
+            final Map<String, dynamic> headers = {
+              'Content-Type': 'application/json',
+              'X-Email': email
+            };
+            if (password != null && password.isNotEmpty) {
+              headers['X-Password'] = password;
+            }
+
+            final Map<String, dynamic> body = {
+              'to': to,
+              'subject': subject,
+              'content': content,
+            };
+            if (draftUid != null) {
+              body['draftUid'] = draftUid;
+            }
+
+            final res = await http.post(
+              Uri.parse('${AppConfig.instance.baseUrl}/email/drafts'),
+              headers: headers.map((k, v) => MapEntry(k, v.toString())),
+              body: jsonEncode(body),
+            );
+
+            if (res.statusCode == 200) {
+              final Map<String, dynamic> resData = jsonDecode(res.body);
+              if (resData.containsKey('draftUid')) {
+                _currentDraftUid = resData['draftUid'];
+              }
+              _showSnackBar("Draft saved successfully!");
+              if (_selectedFolder == "Drafts") {
+                _fetchDraftsFromBackend();
+              }
+            } else {
+              _showSnackBar("Failed to save draft: ${res.body}");
+            }
+          }
+        } catch (e) {
+          debugPrint("Failed to autosave draft: $e");
+        }
+      }
+    }
+  }
+
+  Future<void> _openDraftForEditing(Map<String, dynamic> email, int originalIndex) async {
+    if (email['content'] == null || email['content'].toString().isEmpty) {
+      setState(() {
+        _isLoadingDetails = true;
+      });
+      await _fetchEmailDetails(email, originalIndex);
+      setState(() {
+        _isLoadingDetails = false;
+      });
+    }
+
+    final updatedEmail = _folders["Drafts"]![originalIndex];
+
+    setState(() {
+      _toController.text = updatedEmail['toEmail'] ?? updatedEmail['email'] ?? '';
+      _subjectController.text = updatedEmail['subject'] ?? '';
+      _contentController.text = updatedEmail['content'] ?? '';
+      _currentDraftUid = updatedEmail['uid'];
+      _isComposing = true;
+      _selectedEmailIndex = null;
+    });
   }
 
   Future<void> _pickAttachments() async {
@@ -1205,6 +1436,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
           'subject': subject,
           'content': content,
           'attachments': attachmentPayload,
+          if (_currentDraftUid != null) 'draftUid': _currentDraftUid,
         }),
       );
       debugPrint("  Response status: ${response.statusCode}");
@@ -1214,7 +1446,10 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
         // Wait a moment for the server to sync then refresh
         Future.delayed(
           const Duration(seconds: 2),
-          () => _fetchSentFromBackend(),
+          () {
+            _fetchSentFromBackend();
+            _fetchDraftsFromBackend();
+          },
         );
       } else {
         _showSnackBar("Failed to send: ${response.body}");
@@ -1230,6 +1465,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
       _isForwardingInline = false;
       _selectedFolder = "Sent";
       _selectedEmailIndex = null;
+      _currentDraftUid = null;
     });
   }
 
@@ -2878,7 +3114,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
 
     final bool isLoading = _selectedFolder == "Inbox"
         ? _isLoadingInbox
-        : (_selectedFolder == "Sent" ? _isLoadingSent : false);
+        : (_selectedFolder == "Sent" ? _isLoadingSent : (_selectedFolder == "Drafts" ? _isLoadingDrafts : false));
     int unreadCount = allEmails.where((e) => e['isRead'] == false).length;
 
     return Container(
@@ -2953,7 +3189,9 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                                     emails.length +
                                     ((_selectedFolder == "Inbox"
                                             ? _isInboxLoadingMore
-                                            : _isSentLoadingMore)
+                                            : (_selectedFolder == "Sent"
+                                                ? _isSentLoadingMore
+                                                : _isDraftsLoadingMore))
                                         ? 1
                                         : 0),
                                 itemBuilder: (context, index) {
@@ -3013,6 +3251,10 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                                         final originalIndex = allEmails.indexOf(
                                           email,
                                         );
+                                        if (_selectedFolder == "Drafts") {
+                                          _openDraftForEditing(email, originalIndex);
+                                          return;
+                                        }
                                         final bool wasUnread =
                                             email['isRead'] != true;
                                         setState(() {
@@ -3417,7 +3659,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
               const Spacer(),
               if (!isMobile)
                 IconButton(
-                  onPressed: () => setState(() => _isComposing = false),
+                  onPressed: () => _exitComposer(discard: false),
                   icon: const Icon(Icons.close, color: Color(0xFF94A3B8)),
                   hoverColor: Colors.red.shade50,
                 ),
@@ -3431,6 +3673,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
             label: "To",
             hint: "recipient@example.com",
             icon: Icons.person_outline_rounded,
+            suggestions: _contactSuggestions,
             suffix: !_showCcBcc
                 ? TextButton(
                     onPressed: () => setState(() => _showCcBcc = true),
@@ -3451,6 +3694,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
               label: "Cc",
               hint: "carbon.copy@example.com",
               icon: Icons.people_outline_rounded,
+              suggestions: _contactSuggestions,
               suffix: IconButton(
                 icon: const Icon(
                   Icons.close,
@@ -3635,7 +3879,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                           tooltip: "Emoji",
                         ),
                         IconButton(
-                          onPressed: () {},
+                          onPressed: () => _exitComposer(discard: true),
                           icon: const Icon(
                             Icons.delete_outline,
                             color: Color(0xFF444746),
@@ -4306,6 +4550,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                 label: "To",
                 hint: "recipient@example.com",
                 icon: Icons.person_outline_rounded,
+                suggestions: _contactSuggestions,
                 decoration: const InputDecoration(
                   border: InputBorder.none,
                   labelText: "To",
@@ -4771,6 +5016,7 @@ class RecipientChipsInput extends StatefulWidget {
   final IconData icon;
   final Widget? suffix;
   final InputDecoration? decoration;
+  final List<String> suggestions;
 
   const RecipientChipsInput({
     Key? key,
@@ -4780,6 +5026,7 @@ class RecipientChipsInput extends StatefulWidget {
     required this.icon,
     this.suffix,
     this.decoration,
+    this.suggestions = const [],
   }) : super(key: key);
 
   @override
@@ -4996,62 +5243,122 @@ class _RecipientChipsInputState extends State<RecipientChipsInput> {
                 ))
             .copyWith(hintText: _chips.isEmpty ? widget.hint : '');
 
-    return GestureDetector(
-      onTap: () => _focusNode.requestFocus(),
-      child: InputDecorator(
-        decoration: effectiveDecoration,
-        isEmpty: _chips.isEmpty && _textController.text.isEmpty,
-        isFocused: _focusNode.hasFocus,
-        child: Container(
-          constraints: const BoxConstraints(maxHeight: 120),
-          child: SingleChildScrollView(
-            child: Wrap(
-              spacing: 8.0,
-              runSpacing: 8.0,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                ..._chips.map((email) => _buildChip(email)),
-                Container(
-                  constraints: const BoxConstraints(minWidth: 80),
-                  child: IntrinsicWidth(
-                    child: Focus(
-                      onKeyEvent: (node, event) {
-                        if (event is KeyDownEvent &&
-                            event.logicalKey == LogicalKeyboardKey.backspace) {
-                          if (_textController.text.isEmpty &&
-                              _chips.isNotEmpty) {
-                            setState(() {
-                              _chips.removeLast();
-                              _updateController();
-                            });
-                            return KeyEventResult.handled;
-                          }
-                        }
-                        return KeyEventResult.ignored;
-                      },
-                      child: TextField(
-                        controller: _textController,
-                        focusNode: _focusNode,
-                        onChanged: _onInputChanged,
-                        onSubmitted: _onInputSubmitted,
-                        decoration: const InputDecoration(
-                          border: InputBorder.none,
-                          isDense: true,
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Color(0xFF334155),
+    final String val = _textController.text.trim().toLowerCase();
+    final List<String> matchingSuggestions = widget.suggestions
+        .where((s) => s.toLowerCase().contains(val) && !_chips.contains(s))
+        .toList();
+    final bool showSuggestions = _focusNode.hasFocus && val.isNotEmpty && matchingSuggestions.isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          onTap: () => _focusNode.requestFocus(),
+          child: InputDecorator(
+            decoration: effectiveDecoration,
+            isEmpty: _chips.isEmpty && _textController.text.isEmpty,
+            isFocused: _focusNode.hasFocus,
+            child: Container(
+              constraints: const BoxConstraints(maxHeight: 120),
+              child: SingleChildScrollView(
+                child: Wrap(
+                  spacing: 8.0,
+                  runSpacing: 8.0,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    ..._chips.map((email) => _buildChip(email)),
+                    Container(
+                      constraints: const BoxConstraints(minWidth: 80),
+                      child: IntrinsicWidth(
+                        child: Focus(
+                          onKeyEvent: (node, event) {
+                            if (event is KeyDownEvent &&
+                                event.logicalKey == LogicalKeyboardKey.backspace) {
+                              if (_textController.text.isEmpty &&
+                                  _chips.isNotEmpty) {
+                                setState(() {
+                                  _chips.removeLast();
+                                  _updateController();
+                                });
+                                return KeyEventResult.handled;
+                              }
+                            }
+                            return KeyEventResult.ignored;
+                          },
+                          child: TextField(
+                            controller: _textController,
+                            focusNode: _focusNode,
+                            onChanged: _onInputChanged,
+                            onSubmitted: _onInputSubmitted,
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              isDense: true,
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Color(0xFF334155),
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
-      ),
+        if (showSuggestions) ...[
+          const SizedBox(height: 4),
+          Container(
+            constraints: const BoxConstraints(maxHeight: 150),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: ListView.builder(
+                shrinkWrap: true,
+                padding: EdgeInsets.zero,
+                itemCount: matchingSuggestions.length,
+                itemBuilder: (context, idx) {
+                  final sug = matchingSuggestions[idx];
+                  return ListTile(
+                    dense: true,
+                    title: Text(
+                      sug,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF1E293B),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    onTap: () {
+                      setState(() {
+                        _chips.add(sug);
+                        _textController.clear();
+                        _updateController();
+                      });
+                    },
+                    hoverColor: const Color(0xFFF1F5F9),
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
