@@ -42,17 +42,20 @@ class _CalendarViewState extends State<CalendarView> {
   Map<String, dynamic>? _selectedCalendar;
   String _currentView = 'Month';
   Timer? _refreshTimer;
+  String? _userEmail;
 
   @override
   void initState() {
     super.initState();
+    _loadUserEmail();
     _fetchEvents();
     _fetchCalendars();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
-      if (mounted) {
-        _fetchEvents(isBackgroundRefresh: true);
-        _fetchCalendars(isBackgroundRefresh: true);
-      }
+  }
+
+  Future<void> _loadUserEmail() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _userEmail = prefs.getString('email');
     });
   }
 
@@ -455,80 +458,82 @@ class _CalendarViewState extends State<CalendarView> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // My Calendars Section
-          Padding(
-            padding: const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 12.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text("My Calendars", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A))),
-                InkWell(
-                  onTap: () {
-                    showDialog(
-                      context: context,
-                      builder: (context) => CalendarCreationDialog(
-                        onCalendarCreated: _fetchCalendars,
-                      ),
-                    );
-                  },
-                  child: const Icon(Icons.add_circle_outline, color: Color(0xFF8B5CF6), size: 20),
-                ),
-              ],
-            ),
-          ),
-          if (_isLoadingCalendars)
-            const Padding(
-              padding: EdgeInsets.all(8.0),
-              child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
-            )
-          else if (_calendars.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(8.0),
-              child: Text("No custom calendars", style: TextStyle(color: Colors.grey, fontSize: 13)),
-            )
-          else
-            ..._calendars.map((cal) {
-              final isSelected = _selectedCalendar != null && _selectedCalendar!['calid'] == cal['calid'];
-              return InkWell(
-                onTap: () {
-                  setState(() {
-                    if (isSelected) {
-                      _selectedCalendar = null;
-                    } else {
-                      _selectedCalendar = cal as Map<String, dynamic>;
-                    }
-                  });
-                  _fetchEvents();
-                },
-                child: Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: isSelected ? const Color(0xFF8B5CF6).withOpacity(0.1) : const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: isSelected ? const Color(0xFF8B5CF6) : const Color(0xFFE2E8F0)),
+          if (_userEmail != null && _userEmail!.endsWith('@botsuat.com')) ...[
+            // My Calendars Section
+            Padding(
+              padding: const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 12.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text("My Calendars", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A))),
+                  InkWell(
+                    onTap: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) => CalendarCreationDialog(
+                          onCalendarCreated: _fetchCalendars,
+                        ),
+                      );
+                    },
+                    child: const Icon(Icons.add_circle_outline, color: Color(0xFF8B5CF6), size: 20),
                   ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.calendar_month, size: 16, color: isSelected ? const Color(0xFF8B5CF6) : const Color(0xFF64748B)),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          cal['calname'] ?? 'Calendar',
-                          style: TextStyle(
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-                            fontSize: 13,
-                            color: isSelected ? const Color(0xFF8B5CF6) : const Color(0xFF334155),
+                ],
+              ),
+            ),
+            if (_isLoadingCalendars)
+              const Padding(
+                padding: EdgeInsets.all(8.0),
+                child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+              )
+            else if (_calendars.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(8.0),
+                child: Text("No custom calendars", style: TextStyle(color: Colors.grey, fontSize: 13)),
+              )
+            else
+              ..._calendars.map((cal) {
+                final isSelected = _selectedCalendar != null && _selectedCalendar!['calid'] == cal['calid'];
+                return InkWell(
+                  onTap: () {
+                    setState(() {
+                      if (isSelected) {
+                        _selectedCalendar = null;
+                      } else {
+                        _selectedCalendar = cal as Map<String, dynamic>;
+                      }
+                    });
+                    _fetchEvents();
+                  },
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isSelected ? const Color(0xFF8B5CF6).withOpacity(0.1) : const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: isSelected ? const Color(0xFF8B5CF6) : const Color(0xFFE2E8F0)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.calendar_month, size: 16, color: isSelected ? const Color(0xFF8B5CF6) : const Color(0xFF64748B)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            cal['calname'] ?? 'Calendar',
+                            style: TextStyle(
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                              fontSize: 13,
+                              color: isSelected ? const Color(0xFF8B5CF6) : const Color(0xFF334155),
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              );
-            }).toList(),
-            
-          const SizedBox(height: 24),
+                );
+              }).toList(),
+              
+            const SizedBox(height: 24),
+          ],
           Padding(
             padding: const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 12.0),
             child: Row(

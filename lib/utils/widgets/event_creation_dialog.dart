@@ -228,7 +228,7 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
       final String startTimeStr = DateTime(_startDate.year, _startDate.month, _startDate.day, _startTime.hour, _startTime.minute).toIso8601String();
       final String endTimeStr = DateTime(_endDate.year, _endDate.month, _endDate.day, _endTime.hour, _endTime.minute).toIso8601String();
 
-      final emailRegex = RegExp(r"^[a-zA-Z0-9.a-zA-Z0-9.!#$%&'*+-/=?^_`{|}~]+@[a-zA-Z0-9]+\.[a-zA-Z]+");
+      final emailRegex = RegExp(r"^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$");
       final List<String> requiredAttendees = _requiredAttendeesController.text.split(RegExp(r'[,;]')).map((e) => e.trim()).where((e) => emailRegex.hasMatch(e)).toList();
       final List<String> optionalAttendees = _optionalAttendeesController.text.split(RegExp(r'[,;]')).map((e) => e.trim()).where((e) => emailRegex.hasMatch(e)).toList();
 
