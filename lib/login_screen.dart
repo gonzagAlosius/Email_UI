@@ -485,8 +485,11 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   return const Icon(Icons.g_mobiledata, size: 24, color: Colors.white);
                 },
               ),
-              label: const Text("Sign In with Google",
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+              label: const FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text("Sign In with Google",
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+              ),
             ),
           ),
           const SizedBox(height: 10),
@@ -508,8 +511,11 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   return const Icon(Icons.window, size: 22, color: Colors.white);
                 },
               ),
-              label: const Text("Sign In with Microsoft",
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+              label: const FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text("Sign In with Microsoft",
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+              ),
             ),
           ),
           const SizedBox(height: 16),

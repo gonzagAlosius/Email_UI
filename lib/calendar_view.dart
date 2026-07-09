@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'config/app_config.dart';
 import 'utils/widgets/event_creation_dialog.dart';
 import 'utils/widgets/elaborated_event_dialog.dart';
+import 'utils/widgets/calendar_creation_dialog.dart';
 
 Future<Map<String, String>> _getCalendarHeaders() async {
   SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -34,8 +35,11 @@ class _CalendarViewState extends State<CalendarView> {
   DateTime? _selectedDay;
 
   bool _isLoading = true;
+  bool _isLoadingCalendars = true;
   final Map<DateTime, List<dynamic>> _events = {};
   List<dynamic> _upcomingEvents = [];
+  List<dynamic> _calendars = [];
+  Map<String, dynamic>? _selectedCalendar;
   String _currentView = 'Month';
   Timer? _refreshTimer;
 
@@ -43,8 +47,12 @@ class _CalendarViewState extends State<CalendarView> {
   void initState() {
     super.initState();
     _fetchEvents();
+    _fetchCalendars();
     _refreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
-      if (mounted) _fetchEvents(isBackgroundRefresh: true);
+      if (mounted) {
+        _fetchEvents(isBackgroundRefresh: true);
+        _fetchCalendars(isBackgroundRefresh: true);
+      }
     });
   }
 
@@ -60,7 +68,13 @@ class _CalendarViewState extends State<CalendarView> {
         setState(() => _isLoading = true);
       }
       final headers = await _getCalendarHeaders();
-      final response = await http.get(Uri.parse('${AppConfig.instance.calendarUrl}/events'), headers: headers);
+      String url = '${AppConfig.instance.calendarUrl}/events';
+      if (_selectedCalendar != null) {
+        final calid = _selectedCalendar!['calid'];
+        final orgcode = _selectedCalendar!['orgcode'];
+        url += '?calid=$calid&orgcode=$orgcode';
+      }
+      final response = await http.get(Uri.parse(url), headers: headers);
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         final Map<DateTime, List<dynamic>> newEvents = {};
@@ -96,6 +110,28 @@ class _CalendarViewState extends State<CalendarView> {
     }
   }
 
+  Future<void> _fetchCalendars({bool isBackgroundRefresh = false}) async {
+    try {
+      if (!isBackgroundRefresh) {
+        setState(() => _isLoadingCalendars = true);
+      }
+      final headers = await _getCalendarHeaders();
+      final response = await http.get(Uri.parse('${AppConfig.instance.calendarUrl}/calendars'), headers: headers);
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        setState(() {
+          _calendars = data;
+          _isLoadingCalendars = false;
+        });
+      } else {
+        setState(() => _isLoadingCalendars = false);
+      }
+    } catch (e) {
+      debugPrint("Error fetching calendars: $e");
+      setState(() => _isLoadingCalendars = false);
+    }
+  }
+
   List<dynamic> _getEventsForDay(DateTime day) {
     final date = DateTime(day.year, day.month, day.day);
     return _events.entries
@@ -122,6 +158,7 @@ class _CalendarViewState extends State<CalendarView> {
           'startTime': startTime.toIso8601String(),
           'endTime': endTime.toIso8601String(),
         },
+        selectedCalendar: _selectedCalendar,
       ),
     ).then((_) => _fetchEvents());
   }
@@ -154,7 +191,7 @@ class _CalendarViewState extends State<CalendarView> {
                     icon: const Icon(Icons.add, color: Colors.white, size: 24),
                     onPressed: () => showDialog(
                       context: context,
-                      builder: (_) => const EventCreationDialog(),
+                      builder: (_) => EventCreationDialog(selectedCalendar: _selectedCalendar),
                     ).then((_) => _fetchEvents()),
                   ),
                 ],
@@ -299,7 +336,7 @@ class _CalendarViewState extends State<CalendarView> {
                         icon: const Icon(Icons.add, color: Colors.white, size: 24),
                         onPressed: () => showDialog(
                           context: context,
-                          builder: (_) => const EventCreationDialog(),
+                          builder: (_) => EventCreationDialog(selectedCalendar: _selectedCalendar),
                         ).then((_) => _fetchEvents()),
                       ),
                     ],
@@ -418,6 +455,80 @@ class _CalendarViewState extends State<CalendarView> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // My Calendars Section
+          Padding(
+            padding: const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 12.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text("My Calendars", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A))),
+                InkWell(
+                  onTap: () {
+                    showDialog(
+                      context: context,
+                      builder: (context) => CalendarCreationDialog(
+                        onCalendarCreated: _fetchCalendars,
+                      ),
+                    );
+                  },
+                  child: const Icon(Icons.add_circle_outline, color: Color(0xFF8B5CF6), size: 20),
+                ),
+              ],
+            ),
+          ),
+          if (_isLoadingCalendars)
+            const Padding(
+              padding: EdgeInsets.all(8.0),
+              child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+            )
+          else if (_calendars.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(8.0),
+              child: Text("No custom calendars", style: TextStyle(color: Colors.grey, fontSize: 13)),
+            )
+          else
+            ..._calendars.map((cal) {
+              final isSelected = _selectedCalendar != null && _selectedCalendar!['calid'] == cal['calid'];
+              return InkWell(
+                onTap: () {
+                  setState(() {
+                    if (isSelected) {
+                      _selectedCalendar = null;
+                    } else {
+                      _selectedCalendar = cal as Map<String, dynamic>;
+                    }
+                  });
+                  _fetchEvents();
+                },
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isSelected ? const Color(0xFF8B5CF6).withOpacity(0.1) : const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: isSelected ? const Color(0xFF8B5CF6) : const Color(0xFFE2E8F0)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.calendar_month, size: 16, color: isSelected ? const Color(0xFF8B5CF6) : const Color(0xFF64748B)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          cal['calname'] ?? 'Calendar',
+                          style: TextStyle(
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                            fontSize: 13,
+                            color: isSelected ? const Color(0xFF8B5CF6) : const Color(0xFF334155),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+            
+          const SizedBox(height: 24),
           Padding(
             padding: const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 12.0),
             child: Row(

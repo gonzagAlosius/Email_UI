@@ -20,7 +20,8 @@ Future<Map<String, String>> _getDialogHeaders() async {
 
 class EventCreationDialog extends StatefulWidget {
   final Map<String, dynamic>? initialEvent;
-  const EventCreationDialog({super.key, this.initialEvent});
+  final Map<String, dynamic>? selectedCalendar;
+  const EventCreationDialog({super.key, this.initialEvent, this.selectedCalendar});
 
   @override
   State<EventCreationDialog> createState() => _EventCreationDialogState();
@@ -72,10 +73,20 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
   List<String> _orgUsers = [];
   bool _isLoadingUsers = false;
 
+  // Calendars
+  List<dynamic> _calendars = [];
+  int? _selectedCalId;
+  bool _isLoadingCalendars = false;
+
   @override
   void initState() {
     super.initState();
     _fetchOrgUsers();
+    
+    if (widget.selectedCalendar != null) {
+      _selectedCalId = widget.selectedCalendar!['calid'];
+    }
+    _fetchCalendars();
     
     if (widget.initialEvent != null) {
       final e = widget.initialEvent!;
@@ -130,6 +141,30 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
     } catch (e) {
       debugPrint("Error fetching users: $e");
       setState(() => _isLoadingUsers = false);
+    }
+  }
+
+  Future<void> _fetchCalendars() async {
+    setState(() => _isLoadingCalendars = true);
+    try {
+      final headers = await _getDialogHeaders();
+      headers.remove("Content-Type");
+      final response = await http.get(Uri.parse('${AppConfig.instance.calendarUrl}/calendars'), headers: headers);
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        setState(() {
+          _calendars = data;
+          if (_selectedCalId == null && _calendars.isNotEmpty) {
+            _selectedCalId = _calendars.first['calid'];
+          }
+          _isLoadingCalendars = false;
+        });
+      } else {
+        setState(() => _isLoadingCalendars = false);
+      }
+    } catch (e) {
+      debugPrint("Error fetching calendars: $e");
+      setState(() => _isLoadingCalendars = false);
     }
   }
 
@@ -193,8 +228,9 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
       final String startTimeStr = DateTime(_startDate.year, _startDate.month, _startDate.day, _startTime.hour, _startTime.minute).toIso8601String();
       final String endTimeStr = DateTime(_endDate.year, _endDate.month, _endDate.day, _endTime.hour, _endTime.minute).toIso8601String();
 
-      final List<String> requiredAttendees = _requiredAttendeesController.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-      final List<String> optionalAttendees = _optionalAttendeesController.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+      final emailRegex = RegExp(r"^[a-zA-Z0-9.a-zA-Z0-9.!#$%&'*+-/=?^_`{|}~]+@[a-zA-Z0-9]+\.[a-zA-Z]+");
+      final List<String> requiredAttendees = _requiredAttendeesController.text.split(RegExp(r'[,;]')).map((e) => e.trim()).where((e) => emailRegex.hasMatch(e)).toList();
+      final List<String> optionalAttendees = _optionalAttendeesController.text.split(RegExp(r'[,;]')).map((e) => e.trim()).where((e) => emailRegex.hasMatch(e)).toList();
 
       final Map<String, dynamic> body = {
         "title": _titleController.text,
@@ -215,6 +251,14 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
         "showAs": _showAs,
         "recurrence": _recurrence,
       };
+
+      if (_selectedCalId != null) {
+        body['calid'] = _selectedCalId;
+        final selectedCal = _calendars.firstWhere((c) => c['calid'] == _selectedCalId, orElse: () => null);
+        if (selectedCal != null && selectedCal['orgcode'] != null) {
+          body['orgcode'] = selectedCal['orgcode'];
+        }
+      }
 
       try {
         http.Response response;
@@ -331,6 +375,38 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
                                 ],
                               ),
                               const SizedBox(height: 32),
+
+                              if (_calendars.isNotEmpty) ...[
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Calendar', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF334155))),
+                                    const SizedBox(height: 6),
+                                    DropdownButtonFormField<int>(
+                                      value: _selectedCalId,
+                                      style: const TextStyle(fontSize: 14, color: Color(0xFF0F172A)),
+                                      icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF64748B), size: 20),
+                                      decoration: InputDecoration(
+                                        isDense: true,
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+                                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+                                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFF8B5CF6), width: 1.5)),
+                                        filled: true,
+                                        fillColor: Colors.white,
+                                      ),
+                                      items: _calendars.map((cal) => DropdownMenuItem<int>(
+                                        value: cal['calid'] as int,
+                                        child: Text(cal['calname'] ?? 'Calendar'),
+                                      )).toList(),
+                                      onChanged: (val) {
+                                        setState(() => _selectedCalId = val);
+                                      },
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 20),
+                              ],
 
                               _buildTextField('Event Title', _titleController, isRequired: true),
                               const SizedBox(height: 20),
