@@ -1,5 +1,5 @@
 {
-  "baseUrl": "http://localhost:8081/emailservice/api",
-  "calendarUrl": "http://localhost:8081/emailservice/api",
+  "baseUrl": "http://52.66.121.197:8080/emailservice/api",
+  "calendarUrl": "http://52.66.121.197:8080/emailservice/api",
   "productCode": 10
 }
