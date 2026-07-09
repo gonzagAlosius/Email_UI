@@ -3763,9 +3763,10 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
         bottom: isMobile ? 20 : 28,
         top: 0,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      child: SelectionArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           // Action Bar
           Row(
             children: [
@@ -4199,6 +4200,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 
