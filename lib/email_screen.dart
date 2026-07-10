@@ -4124,6 +4124,19 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                       ? "${email['toName']} <${email['toEmail'] ?? ''}>"
                       : (_userEmail.isNotEmpty ? _userEmail : "me");
                   String content = email['content'] ?? email['body'] ?? email['bodyPreview'] ?? 'No content';
+                  final int colorHash = senderName.codeUnits.fold(0, (a, b) => a + b);
+                  final List<Color> bgColors = [
+                    const Color(0xFFFEE2E2), const Color(0xFFFEF3C7),
+                    const Color(0xFFD1FAE5), const Color(0xFFDBEAFE),
+                    const Color(0xFFF3E8FF),
+                  ];
+                  final List<Color> textColors = [
+                    const Color(0xFFEF4444), const Color(0xFFF59E0B),
+                    const Color(0xFF10B981), const Color(0xFF3B82F6),
+                    const Color(0xFF8B5CF6),
+                  ];
+                  final colorIdx = colorHash % bgColors.length;
+                  final initial = senderName.isNotEmpty ? senderName.substring(0, 1).toUpperCase() : "U";
 
                   showDialog(
                     context: context,
@@ -4132,16 +4145,28 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
                         ),
+                        backgroundColor: Colors.transparent,
                         child: Container(
                           width: 800,
                           height: MediaQuery.of(context).size.height * 0.85,
-                          padding: const EdgeInsets.all(24),
+                          padding: const EdgeInsets.only(left: 32, right: 32, top: 24, bottom: 24),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.center,
                                 children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.arrow_back, color: Color(0xFF64748B)),
+                                    onPressed: () => Navigator.of(context).pop(),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                                  ),
+                                  const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
                                       subject,
@@ -4152,11 +4177,50 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                                       ),
                                     ),
                                   ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF3E8FF),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      _selectedFolder,
+                                      style: const TextStyle(
+                                        color: Color(0xFF7C3AED),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
                                   IconButton(
-                                    icon: const Icon(Icons.close, color: Color(0xFF64748B)),
-                                    onPressed: () => Navigator.of(context).pop(),
+                                    icon: const Icon(Icons.delete_outline, color: Color(0xFF64748B)),
+                                    onPressed: () {
+                                      Navigator.of(context).pop();
+                                      _deleteSelectedEmail();
+                                    },
                                     padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(),
+                                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.print_outlined, color: Color(0xFF64748B)),
+                                    onPressed: () {
+                                      String htmlContent = '''
+                                        <div style="max-width: 800px; margin: 0 auto; font-family: sans-serif; color: #333;">
+                                          <h1 style="color: #0f172a; border-bottom: 1px solid #e2e8f0; padding-bottom: 16px;">$subject</h1>
+                                          <div style="margin-bottom: 24px; color: #64748b;">
+                                            <strong>From:</strong> $senderName &lt;$senderEmail&gt;<br>
+                                            <strong>Date:</strong> $dateStr
+                                          </div>
+                                          <div style="line-height: 1.6; color: #1e293b; white-space: pre-wrap;">
+                                            $content
+                                          </div>
+                                        </div>
+                                      ''';
+                                      printHtmlWeb(subject, htmlContent);
+                                    },
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                                   ),
                                 ],
                               ),
@@ -4165,45 +4229,67 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.center,
                                 children: [
                                   CircleAvatar(
-                                    radius: 20,
-                                    backgroundColor: const Color(0xFFDBEAFE),
+                                    radius: 22,
+                                    backgroundColor: bgColors[colorIdx],
                                     child: Text(
-                                      senderName.isNotEmpty ? senderName[0].toUpperCase() : 'U',
-                                      style: const TextStyle(
-                                        color: Color(0xFF1E40AF),
+                                      initial,
+                                      style: TextStyle(
+                                        color: textColors[colorIdx],
                                         fontWeight: FontWeight.bold,
+                                        fontSize: 16,
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 12),
+                                  const SizedBox(width: 16),
                                   Expanded(
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          "$senderName <$senderEmail>",
+                                          senderName,
                                           style: const TextStyle(
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 15,
                                             color: Color(0xFF0F172A),
                                           ),
+                                          overflow: TextOverflow.ellipsis,
                                         ),
-                                        Text(
-                                          "to $toEmail",
-                                          style: const TextStyle(
-                                            color: Color(0xFF64748B),
-                                            fontSize: 13,
-                                          ),
+                                        const SizedBox(height: 2),
+                                        Row(
+                                          children: const [
+                                            Text(
+                                              "to me ",
+                                              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                                            ),
+                                            Icon(Icons.keyboard_arrow_down, size: 16, color: Color(0xFF94A3B8)),
+                                          ],
                                         ),
                                       ],
                                     ),
                                   ),
                                   Text(
                                     dateStr,
-                                    style: const TextStyle(
-                                      color: Color(0xFF64748B),
-                                      fontSize: 13,
-                                    ),
+                                    style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  IconButton(
+                                    icon: const Icon(Icons.reply_rounded, color: Color(0xFF64748B)),
+                                    onPressed: () {
+                                      Navigator.of(context).pop();
+                                      setState(() {
+                                        _isComposing = false;
+                                        _isReplyingInline = true;
+                                        _isForwardingInline = false;
+                                        _toController.text = senderEmail.isNotEmpty ? senderEmail : senderName;
+                                        _subjectController.text = subject.startsWith('Re:') ? subject : 'Re: $subject';
+                                        _contentController.clear();
+                                        _attachments = [];
+                                      });
+                                    },
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.more_vert, color: Color(0xFF64748B)),
+                                    onPressed: () {},
                                   ),
                                 ],
                               ),
@@ -4214,7 +4300,128 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                               Expanded(
                                 child: SingleChildScrollView(
                                   physics: const BouncingScrollPhysics(),
-                                  child: _buildContentWidget(content),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      _buildContentWidget(content),
+                                      if (email['attachments'] != null && (email['attachments'] as List).isNotEmpty) ...[
+                                        const SizedBox(height: 24),
+                                        const Divider(color: Color(0xFFE2E8F0), thickness: 1),
+                                        const SizedBox(height: 12),
+                                        Row(
+                                          children: [
+                                            const Icon(Icons.attach_file, color: Color(0xFF64748B), size: 16),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              "Attachments (${(email['attachments'] as List).length})",
+                                              style: const TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.bold,
+                                                color: Color(0xFF1E293B),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 12),
+                                        Wrap(
+                                          spacing: 12,
+                                          runSpacing: 12,
+                                          children: (email['attachments'] as List).map<Widget>((att) {
+                                            final String fileName = att['fileName'] ?? 'Unnamed File';
+                                            final String contentType = att['contentType'] ?? 'application/octet-stream';
+                                            return InkWell(
+                                              onTap: () => _fetchAndDownloadAttachment(email, att),
+                                              borderRadius: BorderRadius.circular(8),
+                                              child: Container(
+                                                constraints: const BoxConstraints(maxWidth: 260),
+                                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(0xFFF8FAFC),
+                                                  borderRadius: BorderRadius.circular(8),
+                                                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    const Icon(Icons.insert_drive_file_outlined, color: Color(0xFF4F46E5), size: 20),
+                                                    const SizedBox(width: 8),
+                                                    Expanded(
+                                                      child: Column(
+                                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                                        mainAxisSize: MainAxisSize.min,
+                                                        children: [
+                                                          Text(fileName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)), overflow: TextOverflow.ellipsis),
+                                                          Text(contentType.split('/').last.toUpperCase(), style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)), overflow: TextOverflow.ellipsis),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    const Icon(Icons.download_rounded, color: Color(0xFF64748B), size: 16),
+                                                  ],
+                                                ),
+                                              ),
+                                            );
+                                          }).toList(),
+                                        ),
+                                      ],
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 40, bottom: 20),
+                                        child: Row(
+                                          children: [
+                                            OutlinedButton.icon(
+                                              onPressed: () {
+                                                Navigator.of(context).pop();
+                                                setState(() {
+                                                  _isComposing = false;
+                                                  _isReplyingInline = true;
+                                                  _isForwardingInline = false;
+                                                  _toController.text = senderEmail.isNotEmpty ? senderEmail : senderName;
+                                                  _subjectController.text = subject.startsWith('Re:') ? subject : 'Re: $subject';
+                                                  _contentController.clear();
+                                                  _attachments = [];
+                                                });
+                                              },
+                                              icon: const Icon(Icons.reply_rounded, size: 18),
+                                              label: const Text("Reply", style: TextStyle(fontWeight: FontWeight.w600)),
+                                              style: OutlinedButton.styleFrom(
+                                                foregroundColor: const Color(0xFF475569),
+                                                side: const BorderSide(color: Color(0xFFCBD5E1)),
+                                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            OutlinedButton.icon(
+                                              onPressed: () {},
+                                              icon: const Icon(Icons.reply_all_rounded, size: 18),
+                                              label: const Text("Reply all", style: TextStyle(fontWeight: FontWeight.w600)),
+                                              style: OutlinedButton.styleFrom(
+                                                foregroundColor: const Color(0xFF475569),
+                                                side: const BorderSide(color: Color(0xFFCBD5E1)),
+                                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            OutlinedButton.icon(
+                                              onPressed: () {
+                                                Navigator.of(context).pop();
+                                                _setupForwardInline(email);
+                                              },
+                                              icon: const Icon(Icons.forward_rounded, size: 18),
+                                              label: const Text("Forward", style: TextStyle(fontWeight: FontWeight.w600)),
+                                              style: OutlinedButton.styleFrom(
+                                                foregroundColor: const Color(0xFF475569),
+                                                side: const BorderSide(color: Color(0xFFCBD5E1)),
+                                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ],
