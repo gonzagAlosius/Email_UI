@@ -332,15 +332,10 @@ void openEmailInNewWindow({
 </html>
 ''';
 
-    final encodedHtml = Uri.encodeComponent(pageHtml);
-    js.context.callMethod('eval', ["""
-      var win = window.open('', '_blank', 'width=900,height=750,scrollbars=yes,resizable=yes');
-      if (win) {
-        win.document.open();
-        win.document.write(decodeURIComponent('$encodedHtml'));
-        win.document.close();
-      }
-    """]);
+    final blob = html.Blob([pageHtml], 'text/html');
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    html.window.open(url, '_blank');
+    // Optional: revoke the URL after a short delay if needed, but for a new tab it's usually better to let it be.
   } catch (e) {
     // Ignore or log
   }
