@@ -84,8 +84,18 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
     setState(() => _isLoading = true);
     try {
       final headers = await _getDialogHeaders();
+      final calid = widget.event['calid'];
+      final orgcode = widget.event['orgcode'];
+      
+      Uri url;
+      if (calid != null && orgcode != null) {
+        url = Uri.parse('${AppConfig.instance.calendarUrl}/events/$id?calid=$calid&orgcode=$orgcode');
+      } else {
+        url = Uri.parse('${AppConfig.instance.calendarUrl}/events/$id');
+      }
+      
       final response = await http.delete(
-        Uri.parse('${AppConfig.instance.calendarUrl}/events/$id'),
+        url,
         headers: headers,
       );
       if (response.statusCode == 200) {
@@ -148,6 +158,12 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
       }
     }
     if (teamsLink == null || teamsLink.isEmpty) {
+      final String meeturl = widget.event['meeturl'] ?? '';
+      if (meeturl.isNotEmpty) {
+        teamsLink = meeturl;
+      }
+    }
+    if (teamsLink == null || teamsLink.isEmpty) {
       teamsLink = _extractTeamsLink(_description);
     }
     if (teamsLink == null || teamsLink.isEmpty) {
@@ -167,10 +183,12 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
 
     if (teamsLink != null && teamsLink.isNotEmpty) {
       teamsLink = teamsLink.trim();
-      final cleanRegExp = RegExp(r'(https://[^\s<>"]*teams\.microsoft\.com[^\s<>"]*)');
-      final cleanMatch = cleanRegExp.firstMatch(teamsLink);
-      if (cleanMatch != null) {
-        teamsLink = cleanMatch.group(0);
+      if (teamsLink.contains('teams.microsoft.com')) {
+        final cleanRegExp = RegExp(r'(https://[^\s<>"]*teams\.microsoft\.com[^\s<>"]*)');
+        final cleanMatch = cleanRegExp.firstMatch(teamsLink);
+        if (cleanMatch != null) {
+          teamsLink = cleanMatch.group(0);
+        }
       }
 
       await Clipboard.setData(ClipboardData(text: teamsLink!));
@@ -218,6 +236,12 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
       }
     }
     if (teamsLink == null || teamsLink.isEmpty) {
+      final String meeturl = widget.event['meeturl'] ?? '';
+      if (meeturl.isNotEmpty) {
+        teamsLink = meeturl;
+      }
+    }
+    if (teamsLink == null || teamsLink.isEmpty) {
       teamsLink = _extractTeamsLink(_description);
     }
     if (teamsLink == null || teamsLink.isEmpty) {
@@ -237,10 +261,12 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
 
     if (teamsLink != null && teamsLink.isNotEmpty) {
       teamsLink = teamsLink.trim();
-      final cleanRegExp = RegExp(r'(https://[^\s<>"]*teams\.microsoft\.com[^\s<>"]*)');
-      final cleanMatch = cleanRegExp.firstMatch(teamsLink);
-      if (cleanMatch != null) {
-        teamsLink = cleanMatch.group(0);
+      if (teamsLink.contains('teams.microsoft.com')) {
+        final cleanRegExp = RegExp(r'(https://[^\s<>"]*teams\.microsoft\.com[^\s<>"]*)');
+        final cleanMatch = cleanRegExp.firstMatch(teamsLink);
+        if (cleanMatch != null) {
+          teamsLink = cleanMatch.group(0);
+        }
       }
       openInNewTab(teamsLink!);
     } else {
@@ -318,7 +344,9 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
     final organizer = widget.event['organizerEmail'] ?? widget.event['organizer'] ?? 'Unknown';
     List<dynamic> graphAttendees = _graphData != null && _graphData!['attendees'] != null ? _graphData!['attendees'] : [];
     final attendeesCount = graphAttendees.isNotEmpty ? graphAttendees.length : (widget.event['attendees'] as List<dynamic>? ?? []).length;
+    final String meeturl = widget.event['meeturl'] ?? '';
     final isTeamsMeeting = _graphData != null ? (_graphData!['isOnlineMeeting'] ?? false) : (widget.event['teamsMeeting'] ?? false);
+    final isOnlineMeeting = meeturl.isNotEmpty || isTeamsMeeting;
     final description = _description;
 
     return Dialog(
@@ -542,9 +570,9 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
                                     content: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Text(isTeamsMeeting ? 'Teams meeting' : 'No online meeting', style: const TextStyle(fontSize: 13, color: Color(0xFF475569))),
-                                        if (isTeamsMeeting) const SizedBox(height: 12),
-                                        if (isTeamsMeeting)
+                                        Text(isOnlineMeeting ? (meeturl.isNotEmpty ? 'Online Meeting' : 'Teams meeting') : 'No online meeting', style: const TextStyle(fontSize: 13, color: Color(0xFF475569))),
+                                        if (isOnlineMeeting) const SizedBox(height: 12),
+                                        if (isOnlineMeeting)
                                           InkWell(
                                             onTap: _joinTeamsMeeting,
                                             borderRadius: BorderRadius.circular(20),

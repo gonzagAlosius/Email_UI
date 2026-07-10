@@ -78,6 +78,8 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
   int? _selectedCalId;
   bool _isLoadingCalendars = false;
 
+  bool _isSaving = false;
+
   @override
   void initState() {
     super.initState();
@@ -224,6 +226,7 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
 
   Future<void> _saveEvent() async {
     if (_formKey.currentState!.validate()) {
+      setState(() => _isSaving = true);
       
       final String startTimeStr = DateTime(_startDate.year, _startDate.month, _startDate.day, _startTime.hour, _startTime.minute).toIso8601String();
       final String endTimeStr = DateTime(_endDate.year, _endDate.month, _endDate.day, _endTime.hour, _endTime.minute).toIso8601String();
@@ -299,6 +302,10 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Error: $e')),
           );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isSaving = false);
         }
       }
     }
@@ -702,7 +709,7 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
                                         ),
                                         const SizedBox(width: 12),
                                         ElevatedButton(
-                                          onPressed: _saveEvent,
+                                          onPressed: _isSaving ? null : _saveEvent,
                                           style: ElevatedButton.styleFrom(
                                             backgroundColor: const Color(0xFF8B5CF6),
                                             foregroundColor: Colors.white,
@@ -733,12 +740,28 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
               right: 24,
               child: IconButton(
                 icon: const Icon(Icons.close, color: Color(0xFF64748B), size: 20),
-                onPressed: () => Navigator.of(context).pop(),
+                onPressed: _isSaving ? null : () => Navigator.of(context).pop(),
                 splashRadius: 24,
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
               ),
             ),
+
+            // Loading Overlay
+            if (_isSaving)
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.7),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Center(
+                    child: CircularProgressIndicator(
+                      color: Color(0xFF8B5CF6),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),

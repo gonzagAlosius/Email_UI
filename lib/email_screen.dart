@@ -9,6 +9,8 @@ import 'login_screen.dart';
 import 'calendar_view.dart';
 import 'utils/web_helpers.dart';
 import 'utils/widgets/elaborated_event_dialog.dart';
+import 'utils/widgets/event_creation_dialog.dart';
+import 'utils/widgets/ics_preview_dialog.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:aad_oauth/aad_oauth.dart';
@@ -1497,8 +1499,14 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     final String contentType = att['contentType'] ?? 'application/octet-stream';
     String base64Data = att['base64Data'] ?? '';
 
+    bool isIcs = fileName.toLowerCase().endsWith('.ics') || contentType.contains('text/calendar');
+
     if (base64Data.isNotEmpty) {
-      _downloadAttachment(fileName, contentType, base64Data);
+      if (isIcs) {
+        _handleIcsAttachment(base64Data);
+      } else {
+        _downloadAttachment(fileName, contentType, base64Data);
+      }
       return;
     }
 
@@ -1534,7 +1542,11 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
           setState(() {
             att['base64Data'] = fetchedBase64;
           });
-          _downloadAttachment(fileName, contentType, fetchedBase64);
+          if (isIcs) {
+            _handleIcsAttachment(fetchedBase64);
+          } else {
+            _downloadAttachment(fileName, contentType, fetchedBase64);
+          }
         } else {
           _showSnackBar("Attachment data is empty on the server.");
         }
@@ -1548,6 +1560,230 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     } catch (e) {
       debugPrint("Failed to fetch attachment: $e");
       _showSnackBar("Failed to download attachment: $e");
+    }
+  }
+
+  void _handleIcsAttachment(String base64Data) {
+    try {
+      String icsString = utf8.decode(base64Decode(base64Data));
+      // Unfold folded lines
+      icsString = icsString.replaceAll(RegExp(r'\r?\n[ \t]'), '');
+      
+      String? title;
+      String? description;
+      String? location;
+      String? dtStartStr;
+      String? dtEndStr;
+      String? meeturl;
+      
+      final lines = icsString.split(RegExp(r'\r?\n'));
+      for (String line in lines) {
+        if (line.startsWith('SUMMARY:')) title = line.substring(8).trim();
+        else if (line.startsWith('DESCRIPTION:')) {
+          description = line.substring(12).replaceAll(r'\n', '\n').trim();
+        }
+        else if (line.startsWith('LOCATION:')) location = line.substring(9).trim();
+        else if (line.startsWith('X-GOOGLE-CONFERENCE:')) meeturl = line.substring(20).trim();
+        else if (line.startsWith('DTSTART:')) dtStartStr = line.substring(8).trim();
+        else if (line.startsWith('DTEND:')) dtEndStr = line.substring(6).trim();
+      }
+
+      if (meeturl == null && location != null && (location!.startsWith('http://') || location!.startsWith('https://'))) {
+        meeturl = location;
+        location = "Online Meeting";
+      }
+      
+      DateTime startTime = DateTime.now();
+      if (dtStartStr != null) {
+         String clean = dtStartStr.replaceAll('Z', '');
+         if (clean.length >= 15) {
+             startTime = DateTime(
+               int.parse(clean.substring(0, 4)),
+               int.parse(clean.substring(4, 6)),
+               int.parse(clean.substring(6, 8)),
+               int.parse(clean.substring(9, 11)),
+               int.parse(clean.substring(11, 13)),
+               int.parse(clean.substring(13, 15)),
+             );
+         }
+      }
+      
+      DateTime endTime = startTime.add(const Duration(hours: 1));
+      if (dtEndStr != null) {
+         String clean = dtEndStr.replaceAll('Z', '');
+         if (clean.length >= 15) {
+             endTime = DateTime(
+               int.parse(clean.substring(0, 4)),
+               int.parse(clean.substring(4, 6)),
+               int.parse(clean.substring(6, 8)),
+               int.parse(clean.substring(9, 11)),
+               int.parse(clean.substring(11, 13)),
+               int.parse(clean.substring(13, 15)),
+             );
+         }
+      }
+      
+      final initialEvent = {
+        'title': title ?? 'Imported Event',
+        'description': description ?? '',
+        'location': location ?? '',
+        'meeturl': meeturl ?? '',
+        'startTime': startTime.toIso8601String(),
+        'endTime': endTime.toIso8601String(),
+      };
+      
+      showDialog(
+        context: context,
+        barrierDismissible: true,
+        builder: (context) => IcsPreviewDialog(
+          eventDetails: initialEvent,
+          onAddToCalendar: () {
+            _showCalendarSelectionDialog(initialEvent);
+          },
+        ),
+      );
+      
+    } catch (e) {
+      debugPrint("Error parsing ICS: $e");
+      _showSnackBar("Failed to parse calendar event.");
+    }
+  }
+
+  Future<void> _showCalendarSelectionDialog(Map<String, dynamic> event) async {
+    _showSnackBar("Fetching your calendars...");
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      String? userEmail = prefs.getString('email');
+      
+      final headers = {'X-Email': userEmail ?? ''};
+      final response = await http.get(Uri.parse('${AppConfig.instance.calendarUrl}/calendars'), headers: headers);
+      
+      if (response.statusCode == 200) {
+        final List<dynamic> calendars = json.decode(response.body);
+        if (calendars.isEmpty) {
+          _saveImportedEventToCalendar(event, null, null);
+          return;
+        }
+
+        int selectedCalId = calendars.first['calid'];
+        int selectedOrgCode = calendars.first['orgcode'];
+
+        if (!mounted) return;
+
+        showDialog(
+          context: context,
+          builder: (context) {
+            return StatefulBuilder(
+              builder: (context, setStateSB) {
+                return AlertDialog(
+                  title: const Text('Select Calendar'),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Which calendar should this event be added to?'),
+                      const SizedBox(height: 16),
+                      DropdownButton<int>(
+                        isExpanded: true,
+                        value: selectedCalId,
+                        items: calendars.map((cal) {
+                          return DropdownMenuItem<int>(
+                            value: cal['calid'],
+                            child: Text(cal['calname'] ?? 'Unnamed Calendar'),
+                          );
+                        }).toList(),
+                        onChanged: (val) {
+                          setStateSB(() {
+                            selectedCalId = val!;
+                            final cal = calendars.firstWhere((c) => c['calid'] == val);
+                            selectedOrgCode = cal['orgcode'];
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF8B5CF6),
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _saveImportedEventToCalendar(event, selectedCalId, selectedOrgCode);
+                      },
+                      child: const Text('Save Event'),
+                    ),
+                  ],
+                );
+              }
+            );
+          }
+        );
+      } else {
+        _saveImportedEventToCalendar(event, null, null);
+      }
+    } catch (e) {
+      debugPrint("Error fetching calendars for import: $e");
+      _saveImportedEventToCalendar(event, null, null); // Fallback to default
+    }
+  }
+
+  Future<void> _saveImportedEventToCalendar(Map<String, dynamic> event, int? calid, int? orgcode) async {
+    _showSnackBar("Adding to calendar...");
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      String? userEmail = prefs.getString('email');
+      String? password = _getMailPassword(prefs);
+      
+      final Map<String, String> headers = {
+        'Content-Type': 'application/json',
+      };
+      if (userEmail != null) headers['X-Email'] = userEmail;
+      if (password != null) headers['X-Password'] = password;
+      
+      final Map<String, dynamic> body = {
+        "title": event['title'] ?? 'Imported Event',
+        "description": event['description'] ?? '',
+        "location": event['location'] ?? '',
+        "meeturl": event['meeturl'] ?? '',
+        "startTime": event['startTime'],
+        "endTime": event['endTime'],
+        "attendees": [],
+        "optionalAttendees": [],
+        "isAllDay": false,
+        "isTeamsMeeting": false,
+        "agenda": "",
+        "categories": "",
+        "reminder": "15 minutes before",
+        "sensitivity": "Normal",
+        "importance": "Normal",
+        "timeZone": "UTC",
+        "showAs": "Busy",
+        "recurrence": "None",
+      };
+
+      if (calid != null) body['calid'] = calid;
+      if (orgcode != null) body['orgcode'] = orgcode;
+
+      final response = await http.post(
+        Uri.parse('${AppConfig.instance.calendarUrl}/events'),
+        headers: headers,
+        body: json.encode(body),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        _showSnackBar("Event successfully added to your calendar!");
+      } else {
+        _showSnackBar("Failed to add event: ${response.statusCode}");
+      }
+    } catch (e) {
+      debugPrint("Error saving imported event: $e");
+      _showSnackBar("Error adding event to calendar.");
     }
   }
 
