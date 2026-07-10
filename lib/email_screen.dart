@@ -4125,13 +4125,103 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                       : (_userEmail.isNotEmpty ? _userEmail : "me");
                   String content = email['content'] ?? email['body'] ?? email['bodyPreview'] ?? 'No content';
 
-                  openEmailInNewWindow(
-                    subject: subject,
-                    senderName: senderName,
-                    senderEmail: senderEmail,
-                    toEmail: toEmail,
-                    dateStr: dateStr,
-                    content: content,
+                  showDialog(
+                    context: context,
+                    builder: (context) {
+                      return Dialog(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Container(
+                          width: 800,
+                          height: MediaQuery.of(context).size.height * 0.85,
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      subject,
+                                      style: const TextStyle(
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF0F172A),
+                                      ),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.close, color: Color(0xFF64748B)),
+                                    onPressed: () => Navigator.of(context).pop(),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  CircleAvatar(
+                                    radius: 20,
+                                    backgroundColor: const Color(0xFFDBEAFE),
+                                    child: Text(
+                                      senderName.isNotEmpty ? senderName[0].toUpperCase() : 'U',
+                                      style: const TextStyle(
+                                        color: Color(0xFF1E40AF),
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          "$senderName <$senderEmail>",
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 14,
+                                            color: Color(0xFF0F172A),
+                                          ),
+                                        ),
+                                        Text(
+                                          "to $toEmail",
+                                          style: const TextStyle(
+                                            color: Color(0xFF64748B),
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Text(
+                                    dateStr,
+                                    style: const TextStyle(
+                                      color: Color(0xFF64748B),
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 16),
+                                child: Divider(color: Color(0xFFE2E8F0), height: 1),
+                              ),
+                              Expanded(
+                                child: SingleChildScrollView(
+                                  physics: const BouncingScrollPhysics(),
+                                  child: _buildContentWidget(content),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   );
                 },
               ),
