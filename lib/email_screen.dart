@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import 'package:flutter/services.dart';
 import 'dart:async';
 import 'package:http/http.dart' as http;
@@ -4013,8 +4014,9 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-          // Action Bar
+          // Subject + Action Bar (single row)
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               IconButton(
                 onPressed: () => setState(() => _selectedEmailIndex = null),
@@ -4022,7 +4024,21 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  email['subject'] ?? '(No Subject)',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF0F172A),
+                    letterSpacing: -0.5,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
+              ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
@@ -4041,7 +4057,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                   ),
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 8),
               IconButton(
                 icon: const Icon(
                   Icons.delete_outline,
@@ -4049,7 +4065,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                 ),
                 onPressed: _deleteSelectedEmail,
                 padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
               ),
               IconButton(
                 icon: const Icon(
@@ -4063,7 +4079,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                   });
                 },
                 padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
               ),
               IconButton(
                 icon: const Icon(
@@ -4098,24 +4114,27 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                   Icons.open_in_new_rounded,
                   color: Color(0xFF64748B),
                 ),
-                onPressed: () {},
-              ),
-            ],
-          ),
-          // Subject
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: Text(
-                  email['subject'] ?? '(No Subject)',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF0F172A),
-                    letterSpacing: -0.5,
-                  ),
-                ),
+                onPressed: () {
+                  final email = _folders[_selectedFolder]![_selectedEmailIndex!];
+                  String subject = email['subject'] ?? 'No Subject';
+                  String senderName = email['sender'] ?? 'Unknown Sender';
+                  String senderEmail = email['email'] ?? '';
+                  String dateStr = _formatDate(email['date']);
+                  String toEmail = (email['toName'] != null &&
+                          email['toName'].toString().isNotEmpty)
+                      ? "${email['toName']} <${email['toEmail'] ?? ''}>"
+                      : (_userEmail.isNotEmpty ? _userEmail : "me");
+                  String content = email['content'] ?? email['body'] ?? email['bodyPreview'] ?? 'No content';
+
+                  openEmailInNewWindow(
+                    subject: subject,
+                    senderName: senderName,
+                    senderEmail: senderEmail,
+                    toEmail: toEmail,
+                    dateStr: dateStr,
+                    content: content,
+                  );
+                },
               ),
             ],
           ),
