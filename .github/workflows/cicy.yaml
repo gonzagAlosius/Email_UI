@@ -26,7 +26,7 @@ jobs:
         run: flutter pub get
 
       - name: Build Flutter Web
-        run: flutter build web --release --base-href /hrms/
+        run: flutter build web --release --base-href /email/
 
       - name: Upload Build to VPS
         uses: appleboy/scp-action@v0.1.7
@@ -44,7 +44,7 @@ jobs:
           username: ${{ secrets.TOMCAT_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            sudo mkdir -p /opt/tomcat9/webapps/hrms
-            sudo rm -rf /opt/tomcat9/webapps/hrms/*
-            sudo cp -r /tmp/flutter-build/build/web/* /opt/tomcat9/webapps/hrms/
+            sudo mkdir -p /opt/tomcat9/webapps/email
+            sudo rm -rf /opt/tomcat9/webapps/email/*
+            sudo cp -r /tmp/flutter-build/build/web/* /opt/tomcat9/webapps/email/
             echo "Flutter deployment completed"
