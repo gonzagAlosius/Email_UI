@@ -3219,8 +3219,20 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                                       allEmails.indexOf(email) ==
                                           _selectedEmailIndex &&
                                       !_isComposing;
-                                  final String sender =
-                                      email['sender'] ?? 'Unknown';
+                                  String displayName = email['sender'] ?? 'Unknown';
+                                  if (_selectedFolder == "Sent" || _selectedFolder == "Drafts") {
+                                    String toName = email['toName']?.toString() ?? '';
+                                    String toEmail = email['toEmail']?.toString() ?? email['to']?.toString() ?? '';
+                                    
+                                    if (toName.isNotEmpty) {
+                                      displayName = toName;
+                                    } else if (toEmail.isNotEmpty) {
+                                      displayName = toEmail;
+                                    } else {
+                                      displayName = 'Unknown Receiver';
+                                    }
+                                  }
+                                  final String sender = displayName;
                                   final bool isRead = email['isRead'] == true;
 
                                   final initial = sender.isNotEmpty
@@ -3652,7 +3664,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
               Text(
                 "New Message",
                 style: TextStyle(
-                  fontSize: isMobile ? 20 : 28,
+                  fontSize: isMobile ? 18 : 22,
                   fontWeight: FontWeight.w800,
                   color: const Color(0xFF0F172A),
                   letterSpacing: -0.5,
@@ -5557,8 +5569,7 @@ class _RecipientChipsInputState extends State<RecipientChipsInput> {
                     horizontal: 16,
                     vertical: 12,
                   ),
-                ))
-            .copyWith(hintText: _chips.isEmpty ? widget.hint : '');
+                ));
 
     final String val = _textController.text.trim().toLowerCase();
     final List<String> matchingSuggestions = widget.suggestions
@@ -5608,13 +5619,16 @@ class _RecipientChipsInputState extends State<RecipientChipsInput> {
                             focusNode: _focusNode,
                             onChanged: _onInputChanged,
                             onSubmitted: _onInputSubmitted,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
+                              hintText: _chips.isEmpty ? widget.hint : '',
+                              hintStyle: const TextStyle(color: Color(0xFFCBD5E1)),
                               border: InputBorder.none,
                               isDense: true,
-                              contentPadding: EdgeInsets.zero,
+                              contentPadding: const EdgeInsets.symmetric(vertical: 4),
                             ),
                             style: const TextStyle(
                               fontSize: 14,
+                              height: 1.2,
                               color: Color(0xFF334155),
                             ),
                           ),
