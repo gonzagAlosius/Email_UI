@@ -2897,7 +2897,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
             child: Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
               decoration: BoxDecoration(
                 color: const Color(0xFFF5F3FF),
                 borderRadius: BorderRadius.circular(16),
@@ -2906,46 +2906,48 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
               child: Row(
                 children: [
                   CircleAvatar(
-                    radius: 20,
+                    radius: 16,
                     backgroundColor: const Color(0xFFA855F7),
                     child: Text(
                       _userInitials,
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
-                        fontSize: 16,
+                        fontSize: 13,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          _userName,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                            color: Color(0xFF0F172A),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            _userName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                              color: Color(0xFF0F172A),
+                            ),
                           ),
-                          overflow: TextOverflow.ellipsis,
                         ),
-                        Text(
-                          _userEmail,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Color(0xFF94A3B8),
+                        const SizedBox(height: 2),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            _userEmail,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF94A3B8),
+                            ),
                           ),
-                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
-                  ),
-                  const Icon(
-                    Icons.keyboard_arrow_down,
-                    color: Color(0xFF94A3B8),
-                    size: 16,
                   ),
                 ],
               ),
