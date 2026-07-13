@@ -1493,13 +1493,14 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
 
   Future<void> _fetchAndDownloadAttachment(
     Map<String, dynamic> email,
-    Map<String, dynamic> att,
-  ) async {
+    Map<String, dynamic> att, {
+    bool forceDownload = false,
+  }) async {
     final String fileName = att['fileName'] ?? 'Unnamed File';
     final String contentType = att['contentType'] ?? 'application/octet-stream';
     String base64Data = att['base64Data'] ?? '';
 
-    bool isIcs = fileName.toLowerCase().endsWith('.ics') || contentType.contains('text/calendar');
+    bool isIcs = !forceDownload && (fileName.toLowerCase().endsWith('.ics') || contentType.contains('text/calendar'));
 
     if (base64Data.isNotEmpty) {
       if (isIcs) {
@@ -4604,7 +4605,13 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                                                       ),
                                                     ),
                                                     const SizedBox(width: 8),
-                                                    const Icon(Icons.download_rounded, color: Color(0xFF64748B), size: 16),
+                                                    GestureDetector(
+                                                      onTap: () => _fetchAndDownloadAttachment(email, att, forceDownload: true),
+                                                      child: const Padding(
+                                                        padding: EdgeInsets.all(4.0),
+                                                        child: Icon(Icons.download_rounded, color: Color(0xFF64748B), size: 18),
+                                                      ),
+                                                    ),
                                                   ],
                                                 ),
                                               ),
@@ -4899,10 +4906,16 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                                   ),
                                 ),
                                 const SizedBox(width: 8),
-                                const Icon(
-                                  Icons.download_rounded,
-                                  color: Color(0xFF64748B),
-                                  size: 16,
+                                GestureDetector(
+                                  onTap: () => _fetchAndDownloadAttachment(email, att, forceDownload: true),
+                                  child: const Padding(
+                                    padding: EdgeInsets.all(4.0),
+                                    child: Icon(
+                                      Icons.download_rounded,
+                                      color: Color(0xFF64748B),
+                                      size: 18,
+                                    ),
+                                  ),
                                 ),
                               ],
                             ),
