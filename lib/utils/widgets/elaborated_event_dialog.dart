@@ -36,11 +36,62 @@ class ElaboratedEventDialog extends StatefulWidget {
 class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
   bool _isLoading = false;
   Map<String, dynamic>? _graphData;
+  String? _currentUserEmail;
+  bool _isOrganizer = true;
+  String _currentRsvpStatus = 'NEEDS-ACTION';
 
   @override
   void initState() {
     super.initState();
     _fetchGraphData();
+    _loadCurrentUser();
+  }
+
+  Future<void> _loadCurrentUser() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _currentUserEmail = prefs.getString('email');
+        final organizer = widget.event['organizerEmail'] ?? widget.event['organizer'] ?? 'Unknown';
+        _isOrganizer = (organizer == _currentUserEmail || organizer == 'admin@company.com');
+        
+        _updateInitialRsvpStatus();
+      });
+    }
+  }
+
+  void _updateInitialRsvpStatus() {
+    if (_currentUserEmail == null) return;
+    
+    // Check local attendees first
+    final List<dynamic> localAttendees = widget.event['attendees'] ?? [];
+    for (var attendee in localAttendees) {
+      if (attendee is Map<String, dynamic> && attendee['email'] == _currentUserEmail) {
+        if (attendee['responseStatus'] != null) {
+          _currentRsvpStatus = attendee['responseStatus'].toString().toUpperCase();
+        }
+        return;
+      }
+    }
+    
+    // Check graph data if available
+    if (_graphData != null && _graphData!['attendees'] != null) {
+      final List<dynamic> graphAttendees = _graphData!['attendees'];
+      for (var attendee in graphAttendees) {
+        if (attendee is Map<String, dynamic>) {
+          String? email = attendee['emailAddress']?['address'];
+          if (email == _currentUserEmail && attendee['status']?['response'] != null) {
+            String resp = attendee['status']['response'].toString().toUpperCase();
+            if (resp == 'ACCEPTED' || resp == 'DECLINED' || resp == 'TENTATIVE') {
+              _currentRsvpStatus = resp;
+            } else if (resp == 'NONE') {
+              _currentRsvpStatus = 'NEEDS-ACTION';
+            }
+            return;
+          }
+        }
+      }
+    }
   }
 
   Future<void> _fetchGraphData() async {
@@ -58,6 +109,7 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
         if (mounted) {
           setState(() {
             _graphData = jsonDecode(response.body);
+            _updateInitialRsvpStatus();
           });
         }
       } else {
@@ -117,6 +169,77 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error deleting event: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _updateRsvp(String status) async {
+    final eventId = widget.event['id'] ?? widget.event['eventId'] ?? widget.event['eventid'];
+    final calid = widget.event['calid'];
+    final orgcode = widget.event['orgcode'];
+    final graphEventId = widget.event['graphEventId'];
+
+    final bool isExternal = (eventId == null || calid == null || orgcode == null) && graphEventId != null;
+
+    if (eventId == null || calid == null || orgcode == null) {
+      if (!isExternal) {
+        if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+             SnackBar(content: Text('Cannot update RSVP: Missing identifiers (id: $eventId, calid: $calid, orgcode: $orgcode)')),
+           );
+        }
+        return;
+      }
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      final headers = await _getDialogHeaders();
+      headers['Content-Type'] = 'application/json';
+      
+      http.Response response;
+      if (isExternal) {
+        response = await http.put(
+          Uri.parse('${AppConfig.instance.calendarUrl}/events/graph/$graphEventId/rsvp'),
+          headers: headers,
+          body: jsonEncode({
+            'status': status
+          }),
+        );
+      } else {
+        response = await http.put(
+          Uri.parse('${AppConfig.instance.calendarUrl}/calendar-events/$orgcode/$calid/$eventId/rsvp'),
+          headers: headers,
+          body: jsonEncode({
+            'email': _currentUserEmail,
+            'status': status
+          }),
+        );
+      }
+
+      if (response.statusCode == 200) {
+        if (mounted) {
+          setState(() {
+            _currentRsvpStatus = status;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('RSVP updated to $status')),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to update RSVP: ${response.statusCode}')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error updating RSVP: $e')),
         );
       }
     } finally {
@@ -286,28 +409,80 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
     final startStr = widget.event['startTime'];
     final endStr = widget.event['endTime'];
     final desc = widget.event['description'] ?? '';
-    final location = widget.event['location'] ?? '';
+    String location = widget.event['location'] ?? '';
     final organizer = widget.event['organizerEmail'] ?? widget.event['organizer'] ?? 'Unknown';
+    final meeturl = widget.event['meeturl'] ?? '';
 
     String formatIcsDate(String? dt) {
       if (dt == null || dt.isEmpty) return '';
       return dt.replaceAll('-', '').replaceAll(':', '') + 'Z';
     }
 
+    final isGoogle = organizer.toString().toLowerCase().contains('gmail.com');
+    final prodId = isGoogle ? "-//Google Inc//Google Calendar 70.9054//EN" : "-//Calendar App//EN";
+    final uidSuffix = isGoogle ? "@google.com" : "@botsuat.com";
+    final uid = "event-${widget.event['id'] ?? DateTime.now().millisecondsSinceEpoch}$uidSuffix";
+    
+    String organizerName = organizer.contains('@') ? organizer.split('@').first : organizer;
+    String organizerLine = "ORGANIZER;CN=$organizerName:mailto:$organizer\n";
+
+    String attendeesLine = "";
+    List<dynamic> graphAttendees = _graphData != null && _graphData!['attendees'] != null ? _graphData!['attendees'] : [];
+    List<dynamic> attendees = graphAttendees.isNotEmpty ? graphAttendees : (widget.event['attendees'] as List<dynamic>? ?? []);
+    for (var a in attendees) {
+      String email = "";
+      String name = "";
+      if (a is Map) {
+        email = a['emailAddress']?['address'] ?? '';
+        name = a['emailAddress']?['name'] ?? email.split('@').first;
+      } else if (a is String) {
+        email = a;
+        name = email.split('@').first;
+      }
+      if (email.isNotEmpty) {
+        attendeesLine += "ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE;CN=$name;X-NUM-GUESTS=0:mailto:$email\n";
+      }
+    }
+
+    String now = formatIcsDate(DateTime.now().toUtc().toIso8601String().split('.').first);
+    
     String icsString = "BEGIN:VCALENDAR\n"
+        "PRODID:$prodId\n"
         "VERSION:2.0\n"
-        "PRODID:-//BotsEdge//Calendar//EN\n"
+        "CALSCALE:GREGORIAN\n"
+        "METHOD:REQUEST\n"
         "BEGIN:VEVENT\n"
-        "UID:${widget.event['id'] ?? DateTime.now().millisecondsSinceEpoch}\n"
-        "DTSTAMP:${formatIcsDate(DateTime.now().toUtc().toIso8601String().split('.').first)}\n"
         "DTSTART:${formatIcsDate(startStr)}\n"
         "DTEND:${formatIcsDate(endStr)}\n"
-        "SUMMARY:$title\n"
+        "DTSTAMP:$now\n"
+        "$organizerLine"
+        "UID:$uid\n"
+        "$attendeesLine";
+
+    if (isGoogle && meeturl.isNotEmpty) {
+      icsString += "X-GOOGLE-CONFERENCE:$meeturl\n";
+      if (location.isEmpty) location = meeturl;
+    } else if (meeturl.isNotEmpty) {
+      icsString += "X-MICROSOFT-SKYPESPACES-ONLINE-MEETING:$meeturl\n";
+      if (location.isEmpty) location = meeturl;
+    }
+
+    icsString += "CREATED:$now\n"
         "DESCRIPTION:${desc.replaceAll('\n', '\\n')}\n"
+        "LAST-MODIFIED:$now\n"
         "LOCATION:$location\n"
-        "ORGANIZER;CN=$organizer:mailto:$organizer\n"
+        "SEQUENCE:0\n"
+        "STATUS:CONFIRMED\n"
+        "SUMMARY:$title\n"
+        "TRANSP:OPAQUE\n"
+        "BEGIN:VALARM\n"
+        "ACTION:DISPLAY\n"
+        "DESCRIPTION:This is an event reminder\n"
+        "TRIGGER:-P0DT0H30M0S\n"
+        "END:VALARM\n"
         "END:VEVENT\n"
         "END:VCALENDAR";
+
     final bytes = utf8.encode(icsString);
     final base64String = base64Encode(bytes);
     downloadFileWeb('${title.replaceAll(' ', '_')}.ics', 'text/calendar', base64String);
@@ -423,25 +598,70 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
                                               style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF0F172A), letterSpacing: -0.5),
                                             ),
                                             const SizedBox(height: 12),
-                                            // Accepted Badge
-                                            Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                              decoration: BoxDecoration(
-                                                color: const Color(0xFFDCFCE7).withOpacity(0.5),
-                                                border: Border.all(color: const Color(0xFF86EFAC)),
-                                                borderRadius: BorderRadius.circular(20),
+                                            // RSVP Badge
+                                            if (_currentRsvpStatus != 'NEEDS-ACTION')
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                                decoration: BoxDecoration(
+                                                  color: _currentRsvpStatus == 'ACCEPTED' ? const Color(0xFFDCFCE7).withOpacity(0.5) : 
+                                                         _currentRsvpStatus == 'DECLINED' ? const Color(0xFFFEE2E2).withOpacity(0.5) : 
+                                                         const Color(0xFFF3E8FF).withOpacity(0.5),
+                                                  border: Border.all(color: _currentRsvpStatus == 'ACCEPTED' ? const Color(0xFF86EFAC) : 
+                                                                           _currentRsvpStatus == 'DECLINED' ? const Color(0xFFFCA5A5) : 
+                                                                           const Color(0xFFD8B4FE)),
+                                                  borderRadius: BorderRadius.circular(20),
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    Icon(
+                                                      _currentRsvpStatus == 'ACCEPTED' ? Icons.check : 
+                                                      _currentRsvpStatus == 'DECLINED' ? Icons.close : 
+                                                      Icons.help_outline, 
+                                                      color: _currentRsvpStatus == 'ACCEPTED' ? const Color(0xFF16A34A) : 
+                                                             _currentRsvpStatus == 'DECLINED' ? const Color(0xFFEF4444) : 
+                                                             const Color(0xFF9333EA), 
+                                                      size: 14
+                                                    ),
+                                                    const SizedBox(width: 4),
+                                                    Text(
+                                                      _currentRsvpStatus == 'ACCEPTED' ? 'Accepted' : 
+                                                      _currentRsvpStatus == 'DECLINED' ? 'Declined' : 
+                                                      'Tentative', 
+                                                      style: TextStyle(
+                                                        color: _currentRsvpStatus == 'ACCEPTED' ? const Color(0xFF16A34A) : 
+                                                               _currentRsvpStatus == 'DECLINED' ? const Color(0xFFEF4444) : 
+                                                               const Color(0xFF9333EA), 
+                                                        fontSize: 13, 
+                                                        fontWeight: FontWeight.w600
+                                                      )
+                                                    ),
+                                                    const SizedBox(width: 4),
+                                                    Icon(
+                                                      Icons.keyboard_arrow_down, 
+                                                      color: _currentRsvpStatus == 'ACCEPTED' ? const Color(0xFF16A34A) : 
+                                                             _currentRsvpStatus == 'DECLINED' ? const Color(0xFFEF4444) : 
+                                                             const Color(0xFF9333EA), 
+                                                      size: 16
+                                                    ),
+                                                  ],
+                                                ),
                                               ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: const [
-                                                  Icon(Icons.check, color: Color(0xFF16A34A), size: 14),
-                                                  SizedBox(width: 4),
-                                                  Text('Accepted', style: TextStyle(color: Color(0xFF16A34A), fontSize: 13, fontWeight: FontWeight.w600)),
-                                                  SizedBox(width: 4),
-                                                  Icon(Icons.keyboard_arrow_down, color: Color(0xFF16A34A), size: 16),
-                                                ],
+                                            
+                                            // RSVP Actions
+                                            if (_currentUserEmail != null && !_isOrganizer)
+                                              Padding(
+                                                padding: const EdgeInsets.only(top: 16),
+                                                child: Row(
+                                                  children: [
+                                                    _buildRsvpButton('Accept', Icons.check, Colors.green, 'ACCEPTED'),
+                                                    const SizedBox(width: 8),
+                                                    _buildRsvpButton('Decline', Icons.close, Colors.red, 'DECLINED'),
+                                                    const SizedBox(width: 8),
+                                                    _buildRsvpButton('Tentative', Icons.help_outline, Colors.purple, 'TENTATIVE'),
+                                                  ],
+                                                ),
                                               ),
-                                            ),
                                           ],
                                         ),
                                       ),
@@ -523,9 +743,18 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
                                         if (attendeesCount > 0) const SizedBox(height: 12),
                                         if (attendeesCount > 0)
                                           ...((graphAttendees.isNotEmpty ? graphAttendees : (widget.event['attendees'] as List<dynamic>? ?? []))).map((a) {
-                                            final name = a['emailAddress'] != null ? (a['emailAddress']['name'] ?? a['emailAddress']['address'] ?? 'Unknown') : 'Unknown';
-                                            final role = a['type'] ?? 'Required';
-                                            final status = a['status'] != null ? a['status']['response'] ?? 'None' : 'None';
+                                            String name = a.toString();
+                                            String role = 'Required';
+                                            String status = 'None';
+                                            if (a is Map) {
+                                              if (a['emailAddress'] != null) {
+                                                name = a['emailAddress']['name'] ?? a['emailAddress']['address'] ?? 'Unknown';
+                                              } else if (a['email'] != null) {
+                                                name = a['email'];
+                                              }
+                                              role = a['type'] ?? 'Required';
+                                              status = a['status'] != null ? a['status']['response'] ?? 'None' : 'None';
+                                            }
                                             
                                             String initials = "U";
                                             if (name.toString().isNotEmpty) {
@@ -609,6 +838,58 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
                                     content: Text(description.isEmpty ? 'No notes added' : description, style: const TextStyle(fontSize: 14, color: Color(0xFF475569))),
                                     showDivider: false,
                                   ),
+                                  
+                                  if (_currentUserEmail != null && !_isOrganizer)
+                                    Container(
+                                      margin: const EdgeInsets.only(top: 24),
+                                      padding: const EdgeInsets.all(16),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              const Icon(Icons.mail_outline, size: 16, color: Color(0xFF4F46E5)),
+                                              const SizedBox(width: 8),
+                                              const Text(
+                                                'Email organizer',
+                                                style: TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF4F46E5), fontSize: 13),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 12),
+                                          Container(
+                                            width: double.infinity,
+                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFF8FAFC),
+                                              borderRadius: BorderRadius.circular(6),
+                                              border: Border.all(color: const Color(0xFFE2E8F0)),
+                                            ),
+                                            child: const Text('Add a message (optional)', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13)),
+                                          ),
+                                          const SizedBox(height: 12),
+                                          Row(
+                                            children: [
+                                              OutlinedButton(
+                                                onPressed: () {},
+                                                style: OutlinedButton.styleFrom(
+                                                  foregroundColor: const Color(0xFF4F46E5),
+                                                  side: const BorderSide(color: Color(0xFFC7D2FE)),
+                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                                ),
+                                                child: const Text('Send Email', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                                              ),
+                                            ],
+                                          )
+                                        ],
+                                      ),
+                                    ),
                                 ],
                               ),
                             ),
@@ -743,7 +1024,30 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
       ),
     );
   }
+
+  Widget _buildRsvpButton(String label, IconData icon, Color color, String status) {
+    return InkWell(
+      onTap: () => _updateRsvp(status),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: color.withOpacity(0.5)),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: color),
+            const SizedBox(width: 4),
+            Text(label, style: const TextStyle(color: Color(0xFF1E293B), fontSize: 13)),
+          ],
+        ),
+      ),
+    );
+  }
 }
+
 
 extension StringExtension on String {
     String capitalize() {

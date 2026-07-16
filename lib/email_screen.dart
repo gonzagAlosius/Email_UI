@@ -11,6 +11,7 @@ import 'utils/web_helpers.dart';
 import 'utils/widgets/elaborated_event_dialog.dart';
 import 'utils/widgets/event_creation_dialog.dart';
 import 'utils/widgets/ics_preview_dialog.dart';
+import 'utils/widgets/inline_event_banner.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:aad_oauth/aad_oauth.dart';
@@ -30,6 +31,7 @@ class EmailHomeScreen extends StatefulWidget {
 class _EmailHomeScreenState extends State<EmailHomeScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   String _selectedApp = "Mail";
+  DateTime? _calendarTargetDate;
 
   String? _getMailPassword(SharedPreferences prefs) {
     bool isOAuth =
@@ -1394,6 +1396,42 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     final content = _contentController.text;
     debugPrint("  Subject: '$subject', Content length: ${content.length}");
 
+    String finalContent = content;
+    String? inReplyTo;
+    String? references;
+
+    if (_isReplyingInline && _selectedEmailIndex != null) {
+      final list = _folders[_selectedFolder]!;
+      final originalEmail = list[_selectedEmailIndex!];
+      final messageId = originalEmail['messageId'];
+      
+      if (messageId != null) {
+        inReplyTo = messageId;
+        references = messageId;
+      }
+      
+      final originalContent = originalEmail['content'] ?? '';
+      final originalSender = originalEmail['sender'] ?? '';
+      final originalDate = originalEmail['date'] ?? '';
+      
+      String blockquote = "<div class=\"gmail_quote\" dir=\"ltr\">";
+      blockquote += "On $originalDate, $originalSender wrote:<br/>";
+      blockquote += "<blockquote style=\"margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex\">";
+      blockquote += originalContent;
+      blockquote += "</blockquote></div><br/><br/>";
+      
+      final prefsForEmail = await SharedPreferences.getInstance();
+      final String currentUser = prefsForEmail.getString('email') ?? "Me";
+      final String nowStr = DateTime.now().toIso8601String().split('.')[0].replaceFirst('T', ' ');
+      
+      String newReplyHeader = "<div style=\"border-top:1px solid #ccc; padding-top: 10px; margin-top: 10px;\">";
+      newReplyHeader += "<b>From:</b> $currentUser<br/>";
+      newReplyHeader += "<b>Date:</b> $nowStr<br/>";
+      newReplyHeader += "</div><br/>";
+      
+      finalContent = blockquote + newReplyHeader + content;
+    }
+
     List<Map<String, String>> attachmentPayload = [];
     for (var file in _attachments) {
       if (file.bytes != null) {
@@ -1436,7 +1474,9 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
           'to': to,
           'cc': _ccController.text,
           'subject': subject,
-          'content': content,
+          'content': finalContent,
+          if (inReplyTo != null) 'inReplyTo': inReplyTo,
+          if (references != null) 'references': references,
           'attachments': attachmentPayload,
           if (_currentDraftUid != null) 'draftUid': _currentDraftUid,
         }),
@@ -1576,6 +1616,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
       String? dtStartStr;
       String? dtEndStr;
       String? meeturl;
+      List<String> parsedAttendees = [];
       
       final lines = icsString.split(RegExp(r'\r?\n'));
       for (String line in lines) {
@@ -1585,8 +1626,23 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
         }
         else if (line.startsWith('LOCATION:')) location = line.substring(9).trim();
         else if (line.startsWith('X-GOOGLE-CONFERENCE:')) meeturl = line.substring(20).trim();
-        else if (line.startsWith('DTSTART:')) dtStartStr = line.substring(8).trim();
-        else if (line.startsWith('DTEND:')) dtEndStr = line.substring(6).trim();
+        else if (line.startsWith('DTSTART')) {
+          int idx = line.indexOf(':');
+          if (idx != -1) dtStartStr = line.substring(idx + 1).trim();
+        }
+        else if (line.startsWith('DTEND')) {
+          int idx = line.indexOf(':');
+          if (idx != -1) dtEndStr = line.substring(idx + 1).trim();
+        }
+        else if (line.startsWith('ATTENDEE')) {
+          int mailtoIdx = line.indexOf('mailto:');
+          if (mailtoIdx != -1) {
+            String email = line.substring(mailtoIdx + 7).trim();
+            if (email.isNotEmpty && !parsedAttendees.contains(email)) {
+              parsedAttendees.add(email);
+            }
+          }
+        }
       }
 
       if (meeturl == null && location != null && (location!.startsWith('http://') || location!.startsWith('https://'))) {
@@ -1596,7 +1652,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
       
       DateTime startTime = DateTime.now();
       if (dtStartStr != null) {
-         String clean = dtStartStr.replaceAll('Z', '');
+         String clean = dtStartStr.replaceAll(RegExp(r'[^0-9T]'), '');
          if (clean.length >= 15) {
              startTime = DateTime(
                int.parse(clean.substring(0, 4)),
@@ -1606,12 +1662,18 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                int.parse(clean.substring(11, 13)),
                int.parse(clean.substring(13, 15)),
              );
+         } else if (clean.length == 8) {
+             startTime = DateTime(
+               int.parse(clean.substring(0, 4)),
+               int.parse(clean.substring(4, 6)),
+               int.parse(clean.substring(6, 8)),
+             );
          }
       }
       
       DateTime endTime = startTime.add(const Duration(hours: 1));
       if (dtEndStr != null) {
-         String clean = dtEndStr.replaceAll('Z', '');
+         String clean = dtEndStr.replaceAll(RegExp(r'[^0-9T]'), '');
          if (clean.length >= 15) {
              endTime = DateTime(
                int.parse(clean.substring(0, 4)),
@@ -1620,6 +1682,12 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                int.parse(clean.substring(9, 11)),
                int.parse(clean.substring(11, 13)),
                int.parse(clean.substring(13, 15)),
+             );
+         } else if (clean.length == 8) {
+             endTime = DateTime(
+               int.parse(clean.substring(0, 4)),
+               int.parse(clean.substring(4, 6)),
+               int.parse(clean.substring(6, 8)),
              );
          }
       }
@@ -1631,6 +1699,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
         'meeturl': meeturl ?? '',
         'startTime': startTime.toIso8601String(),
         'endTime': endTime.toIso8601String(),
+        'attendees': parsedAttendees,
       };
       
       showDialog(
@@ -1647,6 +1716,43 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     } catch (e) {
       debugPrint("Error parsing ICS: $e");
       _showSnackBar("Failed to parse calendar event.");
+    }
+  }
+
+  Future<void> _updateRsvpFromEmail(Map<String, dynamic> event, String status) async {
+    _showSnackBar("Updating RSVP...");
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      String? userEmail = prefs.getString('email');
+      
+      final headers = {
+        'Content-Type': 'application/json',
+        'X-Email': userEmail ?? ''
+      };
+      
+      final Map<String, dynamic> body = {
+        "title": event['title'],
+        "startTime": event['startTime'],
+        "endTime": event['endTime'],
+        "status": status.toUpperCase()
+      };
+
+      final response = await http.put(
+        Uri.parse('${AppConfig.instance.calendarUrl}/calendar-events/rsvp-from-email'),
+        headers: headers,
+        body: json.encode(body),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        _showSnackBar("RSVP successfully updated!");
+      } else if (response.statusCode == 404) {
+        _showSnackBar("Event not yet synced. Please wait a moment and try again.");
+      } else {
+        _showSnackBar("Failed to update RSVP. Please try from Calendar.");
+      }
+    } catch (e) {
+      debugPrint("Error updating RSVP from email: $e");
+      _showSnackBar("Error updating RSVP.");
     }
   }
 
@@ -1671,60 +1777,8 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
 
         if (!mounted) return;
 
-        showDialog(
-          context: context,
-          builder: (context) {
-            return StatefulBuilder(
-              builder: (context, setStateSB) {
-                return AlertDialog(
-                  title: const Text('Select Calendar'),
-                  content: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Which calendar should this event be added to?'),
-                      const SizedBox(height: 16),
-                      DropdownButton<int>(
-                        isExpanded: true,
-                        value: selectedCalId,
-                        items: calendars.map((cal) {
-                          return DropdownMenuItem<int>(
-                            value: cal['calid'],
-                            child: Text(cal['calname'] ?? 'Unnamed Calendar'),
-                          );
-                        }).toList(),
-                        onChanged: (val) {
-                          setStateSB(() {
-                            selectedCalId = val!;
-                            final cal = calendars.firstWhere((c) => c['calid'] == val);
-                            selectedOrgCode = cal['orgcode'];
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Cancel'),
-                    ),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF8B5CF6),
-                        foregroundColor: Colors.white,
-                      ),
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _saveImportedEventToCalendar(event, selectedCalId, selectedOrgCode);
-                      },
-                      child: const Text('Save Event'),
-                    ),
-                  ],
-                );
-              }
-            );
-          }
-        );
+        // User requested to not ask directly and just insert into the first available calendar
+        _saveImportedEventToCalendar(event, selectedCalId, selectedOrgCode);
       } else {
         _saveImportedEventToCalendar(event, null, null);
       }
@@ -1754,7 +1808,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
         "meeturl": event['meeturl'] ?? '',
         "startTime": event['startTime'],
         "endTime": event['endTime'],
-        "attendees": [],
+        "attendees": event['attendees'] ?? [],
         "optionalAttendees": [],
         "isAllDay": false,
         "isTeamsMeeting": false,
@@ -1820,6 +1874,76 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
         .replaceAll('&#39;', "'");
     text = text.replaceAll(RegExp(r'\n{3,}'), '\n\n');
     return text.trim();
+  }
+
+  Future<void> _setupReplyInline(Map<String, dynamic> email, {bool replyAll = false}) async {
+    final senderEmail = email['email'] ?? '';
+    final senderName = email['sender'] ?? '';
+    final subject = email['subject'] ?? '';
+    
+    setState(() {
+      _isComposing = false;
+      _isReplyingInline = true;
+      _isForwardingInline = false;
+      
+      if (replyAll) {
+         _toController.text = senderEmail.isNotEmpty ? senderEmail : senderName;
+         _ccController.text = email['toEmail'] ?? '';
+      } else {
+         _toController.text = senderEmail.isNotEmpty ? senderEmail : senderName;
+         _ccController.clear();
+      }
+      _subjectController.text = subject.toString().startsWith('Re:') ? subject : 'Re: $subject';
+      _contentController.clear();
+      _attachments = [];
+    });
+
+    if (email['attachments'] != null && (email['attachments'] as List).isNotEmpty) {
+      final List attachmentsList = email['attachments'] as List;
+      _showSnackBar("Loading ${attachmentsList.length} attachment(s) for reply...");
+      for (var att in attachmentsList) {
+        final String fileName = att['fileName'] ?? 'Unnamed File';
+        String base64Data = att['base64Data'] ?? '';
+
+        if (base64Data.isEmpty && email['uid'] != null) {
+          try {
+            SharedPreferences prefs = await SharedPreferences.getInstance();
+            String? userEmail = prefs.getString('email');
+            String? password = _getMailPassword(prefs);
+            if (userEmail != null) {
+              final Map<String, String> headers = {'X-Email': userEmail};
+              if (password != null && password.isNotEmpty) {
+                headers['X-Password'] = password;
+              }
+              final response = await http.get(
+                Uri.parse('${AppConfig.instance.baseUrl}/email/attachment?folder=$_selectedFolder&uid=${email['uid']}&fileName=${Uri.encodeComponent(fileName)}'),
+                headers: headers,
+              );
+              if (response.statusCode == 200) {
+                final Map<String, dynamic> resData = jsonDecode(response.body);
+                base64Data = resData['base64Data'] ?? '';
+                if (base64Data.isNotEmpty) {
+                  att['base64Data'] = base64Data;
+                }
+              }
+            }
+          } catch (e) {
+            debugPrint("Failed to fetch attachment for reply: $e");
+          }
+        }
+
+        if (base64Data.isNotEmpty) {
+          try {
+            final bytes = base64Decode(base64Data);
+            setState(() {
+              _attachments.add(PlatformFile(name: fileName, size: bytes.length, bytes: bytes));
+            });
+          } catch (e) {
+            debugPrint("Error decoding base64 for $fileName: $e");
+          }
+        }
+      }
+    }
   }
 
   Future<void> _setupForwardInline(Map<String, dynamic> email) async {
@@ -2066,7 +2190,10 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
           );
         }
       } else if (_selectedApp == "Calendar") {
-        mainContent = const CalendarView(key: ValueKey('calendar'));
+        mainContent = CalendarView(
+          key: ValueKey('calendar-${_calendarTargetDate?.toIso8601String() ?? "default"}'),
+          initialDate: _calendarTargetDate,
+        );
       } else {
         mainContent = _buildComingSoonView(_selectedApp);
       }
@@ -2159,7 +2286,10 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(16),
-                    child: const CalendarView(key: ValueKey('calendar-desktop')),
+                    child: CalendarView(
+                      key: ValueKey('calendar-desktop-${_calendarTargetDate?.toIso8601String() ?? "default"}'),
+                      initialDate: _calendarTargetDate,
+                    ),
                   ),
                 ),
               ),
@@ -4258,9 +4388,8 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
         bottom: isMobile ? 20 : 28,
         top: 0,
       ),
-      child: SelectionArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
           children: [
           // Subject + Action Bar (single row)
           Row(
@@ -4522,20 +4651,12 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                                   ),
                                   const SizedBox(width: 16),
                                   IconButton(
-                                    icon: const Icon(Icons.reply_rounded, color: Color(0xFF64748B)),
-                                    onPressed: () {
-                                      Navigator.of(context).pop();
-                                      setState(() {
-                                        _isComposing = false;
-                                        _isReplyingInline = true;
-                                        _isForwardingInline = false;
-                                        _toController.text = senderEmail.isNotEmpty ? senderEmail : senderName;
-                                        _subjectController.text = subject.startsWith('Re:') ? subject : 'Re: $subject';
-                                        _contentController.clear();
-                                        _attachments = [];
-                                      });
-                                    },
-                                  ),
+                                      icon: const Icon(Icons.reply_rounded, color: Color(0xFF64748B)),
+                                      onPressed: () {
+                                        Navigator.of(context).pop();
+                                        _setupReplyInline(email);
+                                      },
+                                    ),
                                   IconButton(
                                     icon: const Icon(Icons.more_vert, color: Color(0xFF64748B)),
                                     onPressed: () {},
@@ -4552,6 +4673,30 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
+                                      if (email['attachments'] != null && (email['attachments'] as List).any((att) {
+                                        final fn = (att['fileName'] ?? '').toString().toLowerCase();
+                                        final ct = (att['contentType'] ?? '').toString().toLowerCase();
+                                        return fn.endsWith('.ics') || ct.contains('text/calendar');
+                                      }))
+                                        InlineEventBanner(
+                                          key: ValueKey(email['uid'].toString()),
+                                          email: email,
+                                          attachment: (email['attachments'] as List).firstWhere((att) {
+                                            final fn = (att['fileName'] ?? '').toString().toLowerCase();
+                                            final ct = (att['contentType'] ?? '').toString().toLowerCase();
+                                            return fn.endsWith('.ics') || ct.contains('text/calendar');
+                                          }),
+                                          selectedFolder: _selectedFolder,
+                                          onRsvp: (eventDetails, status) {
+                                            _updateRsvpFromEmail(eventDetails, status);
+                                          },
+                                          onCheckCalendar: (date) {
+                                            setState(() {
+                                              _selectedApp = "Calendar";
+                                              _calendarTargetDate = date;
+                                            });
+                                          },
+                                        ),
                                       _buildContentWidget(content),
                                       if (email['attachments'] != null && (email['attachments'] as List).isNotEmpty) ...[
                                         const SizedBox(height: 24),
@@ -4626,15 +4771,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                                             OutlinedButton.icon(
                                               onPressed: () {
                                                 Navigator.of(context).pop();
-                                                setState(() {
-                                                  _isComposing = false;
-                                                  _isReplyingInline = true;
-                                                  _isForwardingInline = false;
-                                                  _toController.text = senderEmail.isNotEmpty ? senderEmail : senderName;
-                                                  _subjectController.text = subject.startsWith('Re:') ? subject : 'Re: $subject';
-                                                  _contentController.clear();
-                                                  _attachments = [];
-                                                });
+                                                _setupReplyInline(email);
                                               },
                                               icon: const Icon(Icons.reply_rounded, size: 18),
                                               label: const Text("Reply", style: TextStyle(fontWeight: FontWeight.w600)),
@@ -4647,7 +4784,10 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                                             ),
                                             const SizedBox(width: 12),
                                             OutlinedButton.icon(
-                                              onPressed: () {},
+                                              onPressed: () {
+                                                Navigator.of(context).pop();
+                                                _setupReplyInline(email, replyAll: true);
+                                              },
                                               icon: const Icon(Icons.reply_all_rounded, size: 18),
                                               label: const Text("Reply all", style: TextStyle(fontWeight: FontWeight.w600)),
                                               style: OutlinedButton.styleFrom(
@@ -4761,20 +4901,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
               IconButton(
                 icon: const Icon(Icons.reply_rounded, color: Color(0xFF64748B)),
                 onPressed: () {
-                  setState(() {
-                    _isComposing = false;
-                    _isReplyingInline = true;
-                    _isForwardingInline = false;
-                    _toController.text =
-                        email['email'] ?? email['sender'] ?? '';
-                    _subjectController.text = email['subject'] != null
-                        ? (email['subject'].toString().startsWith('Re:')
-                              ? email['subject']
-                              : 'Re: ${email['subject']}')
-                        : 'Re:';
-                    _contentController.clear();
-                    _attachments = [];
-                  });
+                  _setupReplyInline(email);
                 },
               ),
               IconButton(
@@ -4815,6 +4942,30 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (email['attachments'] != null && (email['attachments'] as List).any((att) {
+                    final fn = (att['fileName'] ?? '').toString().toLowerCase();
+                    final ct = (att['contentType'] ?? '').toString().toLowerCase();
+                    return fn.endsWith('.ics') || ct.contains('text/calendar');
+                  }))
+                    InlineEventBanner(
+                      key: ValueKey(email['uid'].toString()),
+                      email: email,
+                      attachment: (email['attachments'] as List).firstWhere((att) {
+                        final fn = (att['fileName'] ?? '').toString().toLowerCase();
+                        final ct = (att['contentType'] ?? '').toString().toLowerCase();
+                        return fn.endsWith('.ics') || ct.contains('text/calendar');
+                      }),
+                      selectedFolder: _selectedFolder,
+                      onRsvp: (eventDetails, status) {
+                        _updateRsvpFromEmail(eventDetails, status);
+                      },
+                      onCheckCalendar: (date) {
+                        setState(() {
+                          _selectedApp = "Calendar";
+                          _calendarTargetDate = date;
+                        });
+                      },
+                    ),
                   _buildContentWidget(email['content'] ?? ''),
                   if (email['attachments'] != null &&
                       (email['attachments'] as List).isNotEmpty) ...[
@@ -4931,23 +5082,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                         children: [
                           OutlinedButton.icon(
                             onPressed: () {
-                              setState(() {
-                                _isComposing = false;
-                                _isReplyingInline = true;
-                                _isForwardingInline = false;
-                                _toController.text =
-                                    email['email'] ?? email['sender'] ?? '';
-                                _subjectController.text =
-                                    email['subject'] != null
-                                    ? (email['subject'].toString().startsWith(
-                                            'Re:',
-                                          )
-                                          ? email['subject']
-                                          : 'Re: ${email['subject']}')
-                                    : 'Re:';
-                                _contentController.clear();
-                                _attachments = [];
-                              });
+                              _setupReplyInline(email);
                             },
                             icon: const Icon(Icons.reply_rounded, size: 18),
                             label: const Text(
@@ -4968,7 +5103,9 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                           ),
                           const SizedBox(width: 12),
                           OutlinedButton.icon(
-                            onPressed: () {},
+                            onPressed: () {
+                              _setupReplyInline(email, replyAll: true);
+                            },
                             icon: const Icon(Icons.reply_all_rounded, size: 18),
                             label: const Text(
                               "Reply all",
@@ -5022,7 +5159,6 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
           ),
         ],
       ),
-    ),
     );
   }
 
@@ -5547,12 +5683,14 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
           '<div style="white-space: pre-wrap; font-family: sans-serif; font-size: 14px; color: #334155;">${_escapeHtml(trimmed)}</div>';
     }
 
-    return HtmlWidget(
-      processedContent,
-      textStyle: const TextStyle(
-        fontSize: 15,
-        height: 1.6,
-        color: Color(0xFF334155),
+    return SelectionArea(
+      child: HtmlWidget(
+        processedContent,
+        textStyle: const TextStyle(
+          fontSize: 15,
+          height: 1.6,
+          color: Color(0xFF334155),
+        ),
       ),
     );
   }

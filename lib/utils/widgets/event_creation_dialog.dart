@@ -383,37 +383,7 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
                               ),
                               const SizedBox(height: 32),
 
-                              if (_calendars.isNotEmpty) ...[
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('Calendar', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF334155))),
-                                    const SizedBox(height: 6),
-                                    DropdownButtonFormField<int>(
-                                      value: _selectedCalId,
-                                      style: const TextStyle(fontSize: 14, color: Color(0xFF0F172A)),
-                                      icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF64748B), size: 20),
-                                      decoration: InputDecoration(
-                                        isDense: true,
-                                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-                                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-                                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFF8B5CF6), width: 1.5)),
-                                        filled: true,
-                                        fillColor: Colors.white,
-                                      ),
-                                      items: _calendars.map((cal) => DropdownMenuItem<int>(
-                                        value: cal['calid'] as int,
-                                        child: Text(cal['calname'] ?? 'Calendar'),
-                                      )).toList(),
-                                      onChanged: (val) {
-                                        setState(() => _selectedCalId = val);
-                                      },
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 20),
-                              ],
+
 
                               _buildTextField('Event Title', _titleController, isRequired: true),
                               const SizedBox(height: 20),
