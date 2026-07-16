@@ -23,7 +23,8 @@ Future<Map<String, String>> _getCalendarHeaders() async {
 }
 
 class CalendarView extends StatefulWidget {
-  const CalendarView({super.key});
+  final DateTime? initialDate;
+  const CalendarView({super.key, this.initialDate});
 
   @override
   State<CalendarView> createState() => _CalendarViewState();
@@ -31,7 +32,7 @@ class CalendarView extends StatefulWidget {
 
 class _CalendarViewState extends State<CalendarView> {
   CalendarFormat _calendarFormat = CalendarFormat.month;
-  DateTime _focusedDay = DateTime.now();
+  late DateTime _focusedDay;
   DateTime? _selectedDay;
 
   bool _isLoading = true;
@@ -40,16 +41,31 @@ class _CalendarViewState extends State<CalendarView> {
   List<dynamic> _upcomingEvents = [];
   List<dynamic> _calendars = [];
   Map<String, dynamic>? _selectedCalendar;
-  String _currentView = 'Month';
+  String _currentView = 'Day';
   Timer? _refreshTimer;
   String? _userEmail;
 
   @override
   void initState() {
     super.initState();
+    _focusedDay = widget.initialDate ?? DateTime.now();
+    if (widget.initialDate != null) {
+      _selectedDay = widget.initialDate;
+    }
     _loadUserEmail();
     _fetchEvents();
     _fetchCalendars();
+  }
+
+  @override
+  void didUpdateWidget(CalendarView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialDate != null && widget.initialDate != oldWidget.initialDate) {
+      setState(() {
+        _focusedDay = widget.initialDate!;
+        _selectedDay = widget.initialDate;
+      });
+    }
   }
 
   Future<void> _loadUserEmail() async {
@@ -458,82 +474,7 @@ class _CalendarViewState extends State<CalendarView> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          if (_userEmail != null && _userEmail!.endsWith('@botsuat.com')) ...[
-            // My Calendars Section
-            Padding(
-              padding: const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 12.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text("My Calendars", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A))),
-                  InkWell(
-                    onTap: () {
-                      showDialog(
-                        context: context,
-                        builder: (context) => CalendarCreationDialog(
-                          onCalendarCreated: _fetchCalendars,
-                        ),
-                      );
-                    },
-                    child: const Icon(Icons.add_circle_outline, color: Color(0xFF8B5CF6), size: 20),
-                  ),
-                ],
-              ),
-            ),
-            if (_isLoadingCalendars)
-              const Padding(
-                padding: EdgeInsets.all(8.0),
-                child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
-              )
-            else if (_calendars.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(8.0),
-                child: Text("No custom calendars", style: TextStyle(color: Colors.grey, fontSize: 13)),
-              )
-            else
-              ..._calendars.map((cal) {
-                final isSelected = _selectedCalendar != null && _selectedCalendar!['calid'] == cal['calid'];
-                return InkWell(
-                  onTap: () {
-                    setState(() {
-                      if (isSelected) {
-                        _selectedCalendar = null;
-                      } else {
-                        _selectedCalendar = cal as Map<String, dynamic>;
-                      }
-                    });
-                    _fetchEvents();
-                  },
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: isSelected ? const Color(0xFF8B5CF6).withOpacity(0.1) : const Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: isSelected ? const Color(0xFF8B5CF6) : const Color(0xFFE2E8F0)),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.calendar_month, size: 16, color: isSelected ? const Color(0xFF8B5CF6) : const Color(0xFF64748B)),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            cal['calname'] ?? 'Calendar',
-                            style: TextStyle(
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-                              fontSize: 13,
-                              color: isSelected ? const Color(0xFF8B5CF6) : const Color(0xFF334155),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(),
-              
-            const SizedBox(height: 24),
-          ],
+
           Padding(
             padding: const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 12.0),
             child: Row(
@@ -817,21 +758,9 @@ class _CalendarViewState extends State<CalendarView> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(child: Center(child: _buildViewToggle("Day"))),
-                          Expanded(child: Center(child: _buildViewToggle("Week"))),
-                          Expanded(child: Center(child: _buildViewToggle("Month"))),
-                          Expanded(child: Center(child: _buildViewToggle("Year"))),
-                        ],
-                      ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: _buildViewDropdown(),
                     ),
                   ],
                 )
@@ -847,22 +776,7 @@ class _CalendarViewState extends State<CalendarView> {
                     Expanded(
                       child: Align(
                         alignment: Alignment.centerRight,
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF1F5F9),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _buildViewToggle("Day"),
-                              _buildViewToggle("Week"),
-                              _buildViewToggle("Month"),
-                              _buildViewToggle("Year"),
-                            ],
-                          ),
-                        ),
+                        child: _buildViewDropdown(),
                       ),
                     ),
                   ],
@@ -872,29 +786,39 @@ class _CalendarViewState extends State<CalendarView> {
     );
   }
 
-  Widget _buildViewToggle(String label) {
-    bool isSelected = _currentView == label;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () {
-        setState(() {
-          _currentView = label;
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF8B5CF6) : Colors.transparent,
-          borderRadius: BorderRadius.circular(6),
-          boxShadow: isSelected ? [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4)] : null,
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-            color: isSelected ? Colors.white : const Color(0xFF64748B),
+  Widget _buildViewDropdown() {
+    return Container(
+      height: 36,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF8B5CF6),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _currentView,
+          icon: const SizedBox.shrink(),
+          dropdownColor: const Color(0xFF8B5CF6),
+          elevation: 2,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
           ),
+          onChanged: (String? newValue) {
+            if (newValue != null) {
+              setState(() {
+                _currentView = newValue;
+              });
+            }
+          },
+          items: <String>['Day', 'Week', 'Month', 'Year']
+              .map<DropdownMenuItem<String>>((String value) {
+            return DropdownMenuItem<String>(
+              value: value,
+              child: Text(value),
+            );
+          }).toList(),
         ),
       ),
     );
@@ -973,7 +897,7 @@ class _CalendarViewState extends State<CalendarView> {
                             return Expanded(
                               child: Padding(
                                 padding: const EdgeInsets.only(right: 2.0),
-                                child: _buildEventBlock(e, Colors.blue),
+                                child: _buildEventBlock(e, _getEventColor(e)),
                               ),
                             );
                           }).toList(),
@@ -1010,6 +934,16 @@ class _CalendarViewState extends State<CalendarView> {
         );
       },
     );
+  }
+
+  Color _getEventColor(Map<String, dynamic> event) {
+    if (event['status'] == 'PENDING_INVITATION') {
+      return Colors.orange;
+    }
+    if (event['color'] != null) {
+      return Color(int.parse(event['color'].replaceFirst('#', '0xFF')));
+    }
+    return const Color(0xFF8B5CF6);
   }
 
   Widget _buildEventBlock(Map<String, dynamic> event, Color color) {
@@ -1086,9 +1020,7 @@ class _CalendarViewState extends State<CalendarView> {
                       final e = events[index];
                       final st = DateTime.tryParse(e['startTime'] ?? '');
                       final timeStr = st != null ? DateFormat('h:mm a').format(st) : '';
-                      final color = e['color'] != null 
-                          ? Color(int.parse(e['color'].replaceFirst('#', '0xFF'))) 
-                          : const Color(0xFF8B5CF6);
+                      final color = _getEventColor(e);
                           
                       return GestureDetector(
                         onTap: () {
@@ -1256,9 +1188,7 @@ class _CalendarViewState extends State<CalendarView> {
                   if (events.length == 1)
                     ...events.map((e) {
                       final eventMap = e as Map<String, dynamic>;
-                      final color = eventMap['color'] != null 
-                          ? Color(int.parse(eventMap['color'].replaceFirst('#', '0xFF'))) 
-                          : const Color(0xFF8B5CF6);
+                      final color = _getEventColor(eventMap);
                       return GestureDetector(
                         onTap: () => _showEventDetailsDialog(eventMap),
                         child: Container(
@@ -1288,9 +1218,7 @@ class _CalendarViewState extends State<CalendarView> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: events.take(3).map((e) {
                               final eventMap = e as Map<String, dynamic>;
-                              final color = eventMap['color'] != null 
-                                  ? Color(int.parse(eventMap['color'].replaceFirst('#', '0xFF'))) 
-                                  : const Color(0xFF8B5CF6);
+                              final color = _getEventColor(eventMap);
                               return Container(
                                 margin: const EdgeInsets.symmetric(horizontal: 1.5),
                                 width: 5,
@@ -1430,7 +1358,7 @@ class _CalendarViewState extends State<CalendarView> {
                                       return Expanded(
                                         child: Padding(
                                           padding: const EdgeInsets.only(right: 1.0),
-                                          child: _buildEventBlock(e, Colors.blue),
+                                          child: _buildEventBlock(e, _getEventColor(e)),
                                         ),
                                       );
                                     }).toList(),
