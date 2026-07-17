@@ -493,7 +493,7 @@ class _CalendarViewState extends State<CalendarView> {
           ...upcoming.map((event) {
             final startTime = DateTime.tryParse(event['startTime'] ?? '');
             final timeStr = startTime != null ? DateFormat('MMM d, h:mm a').format(startTime) : 'Unknown time';
-            final color = event['color'] != null ? Color(int.parse(event['color'].replaceFirst('#', '0xFF'))) : const Color(0xFF8B5CF6);
+            final color = _getEventColor(event);
             return _buildUpcomingEvent(event, timeStr, color);
           }).toList(),
           
@@ -940,6 +940,13 @@ class _CalendarViewState extends State<CalendarView> {
     if (event['status'] == 'PENDING_INVITATION') {
       return Colors.orange;
     }
+    
+    // Check if the current user is not the organizer (i.e., it's a received invitation)
+    final organizer = event['organizerEmail'] ?? event['organizer'] ?? 'Unknown';
+    if (_userEmail != null && organizer != 'Unknown' && organizer != _userEmail && organizer != 'admin@company.com') {
+      return const Color(0xFF3B82F6); // Blue color for invitations
+    }
+
     if (event['color'] != null) {
       return Color(int.parse(event['color'].replaceFirst('#', '0xFF')));
     }
