@@ -944,7 +944,25 @@ class _CalendarViewState extends State<CalendarView> {
     // Check if the current user is not the organizer (i.e., it's a received invitation)
     final organizer = event['organizerEmail'] ?? event['organizer'] ?? 'Unknown';
     if (_userEmail != null && organizer != 'Unknown' && organizer != _userEmail && organizer != 'admin@company.com') {
-      return const Color(0xFF3B82F6); // Blue color for invitations
+      // Check if user has accepted the invitation
+      bool hasAccepted = false;
+      if (event['localRsvpStatus']?.toString().toUpperCase() == 'ACCEPTED') {
+        hasAccepted = true;
+      } else {
+        final List<dynamic> attendees = event['attendees'] ?? [];
+        for (var attendee in attendees) {
+          if (attendee is Map<String, dynamic> && attendee['email']?.toString().toLowerCase() == _userEmail?.toLowerCase()) {
+            if (attendee['responseStatus']?.toString().toUpperCase() == 'ACCEPTED') {
+              hasAccepted = true;
+            }
+            break;
+          }
+        }
+      }
+      
+      if (!hasAccepted) {
+        return const Color(0xFF3B82F6); // Blue color for pending invitations
+      }
     }
 
     if (event['color'] != null) {
@@ -982,6 +1000,7 @@ class _CalendarViewState extends State<CalendarView> {
       builder: (context) => ElaboratedEventDialog(
         event: event,
         onEventDeleted: () => _fetchEvents(),
+        onEventUpdated: () => setState(() {}),
       ),
     );
   }

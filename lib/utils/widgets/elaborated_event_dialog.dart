@@ -22,11 +22,13 @@ Future<Map<String, String>> _getDialogHeaders() async {
 class ElaboratedEventDialog extends StatefulWidget {
   final Map<String, dynamic> event;
   final VoidCallback onEventDeleted;
+  final VoidCallback? onEventUpdated;
 
   const ElaboratedEventDialog({
     super.key,
     required this.event,
     required this.onEventDeleted,
+    this.onEventUpdated,
   });
 
   @override
@@ -62,6 +64,11 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
 
   void _updateInitialRsvpStatus() {
     if (_currentUserEmail == null) return;
+    
+    if (widget.event['localRsvpStatus'] != null) {
+       _currentRsvpStatus = widget.event['localRsvpStatus'].toString().toUpperCase();
+       return;
+    }
     
     // Check local attendees first
     final List<dynamic> localAttendees = widget.event['attendees'] ?? [];
@@ -224,10 +231,21 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
         if (mounted) {
           setState(() {
             _currentRsvpStatus = status;
+            widget.event['localRsvpStatus'] = status;
+            final List<dynamic> attendees = widget.event['attendees'] ?? [];
+            for (var attendee in attendees) {
+              if (attendee is Map<String, dynamic> && attendee['email']?.toString().toLowerCase() == _currentUserEmail?.toLowerCase()) {
+                attendee['responseStatus'] = status;
+                break;
+              }
+            }
           });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('RSVP updated to $status')),
           );
+          if (widget.onEventUpdated != null) {
+            widget.onEventUpdated!();
+          }
         }
       } else {
         if (mounted) {
@@ -600,8 +618,14 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
                                             const SizedBox(height: 12),
                                             // RSVP Badge
                                             if (_currentRsvpStatus != 'NEEDS-ACTION')
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                              GestureDetector(
+                                                onTap: () {
+                                                  setState(() {
+                                                    _currentRsvpStatus = 'NEEDS-ACTION';
+                                                  });
+                                                },
+                                                child: Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                                                 decoration: BoxDecoration(
                                                   color: _currentRsvpStatus == 'ACCEPTED' ? const Color(0xFFDCFCE7).withOpacity(0.5) : 
                                                          _currentRsvpStatus == 'DECLINED' ? const Color(0xFFFEE2E2).withOpacity(0.5) : 
@@ -647,9 +671,10 @@ class _ElaboratedEventDialogState extends State<ElaboratedEventDialog> {
                                                   ],
                                                 ),
                                               ),
+                                            ),
                                             
                                             // RSVP Actions
-                                            if (_currentUserEmail != null && !_isOrganizer)
+                                            if (_currentUserEmail != null && !_isOrganizer && _currentRsvpStatus == 'NEEDS-ACTION')
                                               Padding(
                                                 padding: const EdgeInsets.only(top: 16),
                                                 child: Row(
