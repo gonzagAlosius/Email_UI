@@ -9,7 +9,7 @@ class InlineEventBanner extends StatefulWidget {
   final Map<String, dynamic> email;
   final Map<String, dynamic> attachment;
   final String selectedFolder;
-  final void Function(Map<String, dynamic>, String) onRsvp;
+  final Future<bool> Function(Map<String, dynamic>, String) onRsvp;
   final void Function(DateTime) onCheckCalendar;
 
   const InlineEventBanner({
@@ -228,9 +228,11 @@ class _InlineEventBannerState extends State<InlineEventBanner> {
     await prefs.setString('rsvp_${widget.email['uid']}', action);
   }
 
-  void _handleRsvp(String status, String backendStatus) {
-    _handleRsvpAction(status.toLowerCase());
-    widget.onRsvp(_eventDetails!, backendStatus);
+  void _handleRsvp(String status, String backendStatus) async {
+    bool success = await widget.onRsvp(_eventDetails!, backendStatus);
+    if (success) {
+      _handleRsvpAction(status.toLowerCase());
+    }
   }
 
   @override
