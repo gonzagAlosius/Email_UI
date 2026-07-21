@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../config/app_config.dart';
+import 'conflict_dialog.dart';
 
 Future<Map<String, String>> _getDialogHeaders() async {
   SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -268,6 +269,20 @@ class _EventCreationDialogState extends State<EventCreationDialog> {
         final headers = await _getDialogHeaders();
         
         final bool isEditing = widget.initialEvent != null && widget.initialEvent!['id'] != null;
+        final dynamic ignoreId = isEditing ? widget.initialEvent!['id'] : null;
+
+        final DateTime startDt = DateTime(_startDate.year, _startDate.month, _startDate.day, _startTime.hour, _startTime.minute);
+        final DateTime endDt = DateTime(_endDate.year, _endDate.month, _endDate.day, _endTime.hour, _endTime.minute);
+
+        final conflicting = await checkEventConflict(headers, startDt, endDt, ignoreEventId: ignoreId);
+        if (conflicting != null && mounted) {
+          final bool? proceed = await showConflictConfirmationDialog(context, conflicting);
+          if (proceed != true) {
+            setState(() => _isSaving = false);
+            return;
+          }
+        }
+
         if (isEditing) {
           final id = widget.initialEvent!['id'];
           response = await http.put(

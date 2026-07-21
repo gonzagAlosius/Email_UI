@@ -12,6 +12,7 @@ import 'utils/widgets/elaborated_event_dialog.dart';
 import 'utils/widgets/event_creation_dialog.dart';
 import 'utils/widgets/ics_preview_dialog.dart';
 import 'utils/widgets/inline_event_banner.dart';
+import 'utils/widgets/conflict_dialog.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:aad_oauth/aad_oauth.dart';
@@ -1719,22 +1720,47 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
     }
   }
 
-  Future<void> _updateRsvpFromEmail(Map<String, dynamic> event, String status) async {
-    _showSnackBar("Updating RSVP...");
+  Future<bool> _updateRsvpFromEmail(Map<String, dynamic> event, String status) async {
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();
       String? userEmail = prefs.getString('email');
+      String? password = _getMailPassword(prefs);
       
-      final headers = {
+      final Map<String, String> headers = {
         'Content-Type': 'application/json',
-        'X-Email': userEmail ?? ''
       };
-      
+      if (userEmail != null) headers['X-Email'] = userEmail;
+      if (password != null) headers['X-Password'] = password;
+
+      final String upperStatus = status.toUpperCase();
+      if (upperStatus == 'ACCEPTED' || upperStatus == 'TENTATIVE') {
+        final DateTime? newStart = parseAnyDateTime(event['startTime']);
+        DateTime? newEnd = parseAnyDateTime(event['endTime']);
+        if (newStart != null) {
+          newEnd ??= newStart.add(const Duration(hours: 1));
+          final conflicting = await checkEventConflict(headers, newStart, newEnd);
+          if (conflicting != null && mounted) {
+            final String conflictingTitle = (conflicting['title'] ?? '').toString().trim().toLowerCase();
+            final String eventTitle = (event['title'] ?? '').toString().trim().toLowerCase();
+            if (conflictingTitle != eventTitle) {
+              final bool? proceed = await showConflictConfirmationDialog(context, conflicting);
+              if (proceed != true) {
+                return false;
+              }
+            }
+          }
+        }
+      }
+
+      _showSnackBar("Updating RSVP...");
+
       final Map<String, dynamic> body = {
         "title": event['title'],
         "startTime": event['startTime'],
         "endTime": event['endTime'],
-        "status": status.toUpperCase()
+        "location": event['location'] ?? '',
+        "meeturl": event['meeturl'] ?? '',
+        "status": upperStatus
       };
 
       final response = await http.put(
@@ -1745,14 +1771,18 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         _showSnackBar("RSVP successfully updated!");
+        return true;
       } else if (response.statusCode == 404) {
         _showSnackBar("Event not yet synced. Please wait a moment and try again.");
+        return false;
       } else {
         _showSnackBar("Failed to update RSVP. Please try from Calendar.");
+        return false;
       }
     } catch (e) {
       debugPrint("Error updating RSVP from email: $e");
       _showSnackBar("Error updating RSVP.");
+      return false;
     }
   }
 
@@ -1789,7 +1819,6 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
   }
 
   Future<void> _saveImportedEventToCalendar(Map<String, dynamic> event, int? calid, int? orgcode) async {
-    _showSnackBar("Adding to calendar...");
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();
       String? userEmail = prefs.getString('email');
@@ -1800,6 +1829,21 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
       };
       if (userEmail != null) headers['X-Email'] = userEmail;
       if (password != null) headers['X-Password'] = password;
+      
+      final DateTime? newStart = parseAnyDateTime(event['startTime']);
+      DateTime? newEnd = parseAnyDateTime(event['endTime']);
+      if (newStart != null) {
+        newEnd ??= newStart.add(const Duration(hours: 1));
+        final conflicting = await checkEventConflict(headers, newStart, newEnd);
+        if (conflicting != null && mounted) {
+          final bool? proceed = await showConflictConfirmationDialog(context, conflicting);
+          if (proceed != true) {
+            return;
+          }
+        }
+      }
+
+      _showSnackBar("Adding to calendar...");
       
       final Map<String, dynamic> body = {
         "title": event['title'] ?? 'Imported Event',
@@ -4687,9 +4731,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                                             return fn.endsWith('.ics') || ct.contains('text/calendar');
                                           }),
                                           selectedFolder: _selectedFolder,
-                                          onRsvp: (eventDetails, status) {
-                                            _updateRsvpFromEmail(eventDetails, status);
-                                          },
+                                          onRsvp: (eventDetails, status) => _updateRsvpFromEmail(eventDetails, status),
                                           onCheckCalendar: (date) {
                                             setState(() {
                                               _selectedApp = "Calendar";
@@ -4956,9 +4998,7 @@ class _EmailHomeScreenState extends State<EmailHomeScreen> {
                         return fn.endsWith('.ics') || ct.contains('text/calendar');
                       }),
                       selectedFolder: _selectedFolder,
-                      onRsvp: (eventDetails, status) {
-                        _updateRsvpFromEmail(eventDetails, status);
-                      },
+                      onRsvp: (eventDetails, status) => _updateRsvpFromEmail(eventDetails, status),
                       onCheckCalendar: (date) {
                         setState(() {
                           _selectedApp = "Calendar";
